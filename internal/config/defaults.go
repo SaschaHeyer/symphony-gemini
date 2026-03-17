@@ -29,11 +29,12 @@ func DefaultConfig() Config {
 			MaxConcurrentAgentsByState: map[string]int{},
 		},
 		Gemini: GeminiConfig{
-			Command:        "gemini --experimental-acp",
+			Command:        "gemini --acp",
 			Model:          "gemini-3.1-pro-preview",
 			TurnTimeoutMs:  3600000,
 			ReadTimeoutMs:  5000,
 			StallTimeoutMs: 300000,
 		},
+
 	}
 }

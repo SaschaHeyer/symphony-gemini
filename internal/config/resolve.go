@@ -16,6 +16,11 @@ func ResolveConfig(cfg *Config) (*Config, error) {
 	// Resolve $VAR in tracker.api_key
 	resolved.Tracker.APIKey = resolveEnvVar(resolved.Tracker.APIKey)
 
+	// Fallback to LINEAR_API_KEY env var if still empty
+	if resolved.Tracker.APIKey == "" {
+		resolved.Tracker.APIKey = os.Getenv("LINEAR_API_KEY")
+	}
+
 	// Resolve $VAR and ~ in workspace.root
 	resolved.Workspace.Root = resolveEnvVar(resolved.Workspace.Root)
 	resolved.Workspace.Root = expandHome(resolved.Workspace.Root)
