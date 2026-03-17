@@ -1,0 +1,39 @@
+package config
+
+import (
+	"os"
+	"path/filepath"
+)
+
+// DefaultConfig returns a Config with all spec-defined default values.
+func DefaultConfig() Config {
+	return Config{
+		Tracker: TrackerConfig{
+			Endpoint:       "https://api.linear.app/graphql",
+			ActiveStates:   []string{"Todo", "In Progress"},
+			TerminalStates: []string{"Closed", "Cancelled", "Canceled", "Duplicate", "Done"},
+		},
+		Polling: PollingConfig{
+			IntervalMs: 30000,
+		},
+		Workspace: WorkspaceConfig{
+			Root: filepath.Join(os.TempDir(), "symphony_workspaces"),
+		},
+		Hooks: HooksConfig{
+			TimeoutMs: 60000,
+		},
+		Agent: AgentConfig{
+			MaxConcurrentAgents:        10,
+			MaxTurns:                   20,
+			MaxRetryBackoffMs:          300000,
+			MaxConcurrentAgentsByState: map[string]int{},
+		},
+		Gemini: GeminiConfig{
+			Command:        "gemini --experimental-acp",
+			Model:          "gemini-3.1-pro-preview",
+			TurnTimeoutMs:  3600000,
+			ReadTimeoutMs:  5000,
+			StallTimeoutMs: 300000,
+		},
+	}
+}

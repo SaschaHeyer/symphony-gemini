@@ -1,0 +1,37 @@
+package tracker
+
+import "fmt"
+
+// Error kind constants for tracker operations.
+const (
+	ErrUnsupportedTrackerKind  = "unsupported_tracker_kind"
+	ErrMissingAPIKey           = "missing_tracker_api_key"
+	ErrMissingProjectSlug      = "missing_tracker_project_slug"
+	ErrLinearAPIRequest        = "linear_api_request"
+	ErrLinearAPIStatus         = "linear_api_status"
+	ErrLinearGraphQLErrors     = "linear_graphql_errors"
+	ErrLinearUnknownPayload    = "linear_unknown_payload"
+	ErrLinearMissingEndCursor  = "linear_missing_end_cursor"
+)
+
+// TrackerError is a typed error for tracker operations.
+type TrackerError struct {
+	Kind    string
+	Message string
+	Cause   error
+}
+
+func (e *TrackerError) Error() string {
+	if e.Cause != nil {
+		return fmt.Sprintf("%s: %s: %v", e.Kind, e.Message, e.Cause)
+	}
+	return fmt.Sprintf("%s: %s", e.Kind, e.Message)
+}
+
+func (e *TrackerError) Unwrap() error {
+	return e.Cause
+}
+
+func newTrackerError(kind, message string, cause error) *TrackerError {
+	return &TrackerError{Kind: kind, Message: message, Cause: cause}
+}

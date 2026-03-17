@@ -1,0 +1,4 @@
+bin/
+symphony
+*.log
+.DS_Store
