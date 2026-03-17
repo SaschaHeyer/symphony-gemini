@@ -225,7 +225,7 @@ func (o *Orchestrator) dispatchIssue(ctx context.Context, issue *tracker.Issue, 
 			AgentCfg:      &agentCfg,
 			WorkspaceMgr:  o.workspaceMgr,
 			WorkspaceRoot: cfg.Workspace.Root,
-			ExtraEnv:      []string{"LINEAR_API_KEY=" + cfg.Tracker.APIKey},
+			ExtraEnv:      []string{},
 			CheckIssueState: func(ctx context.Context, issueID string) (string, error) {
 				issues, err := o.tracker.FetchIssueStatesByIDs([]string{issueID})
 				if err != nil {
