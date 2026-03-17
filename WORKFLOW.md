@@ -22,7 +22,13 @@ hooks:
     npm install
   timeout_ms: 180000
   before_run: |
-    git stash --include-untracked 2>/dev/null; git checkout main && git pull
+    git fetch origin main 2>/dev/null
+    CURRENT_BRANCH=$(git branch --show-current 2>/dev/null)
+    if [ "$CURRENT_BRANCH" = "main" ] || [ -z "$CURRENT_BRANCH" ]; then
+      git stash --include-untracked 2>/dev/null
+      git checkout main 2>/dev/null
+      git pull 2>/dev/null
+    fi
 server:
   port: 8080
 ---
@@ -56,25 +62,20 @@ Determine the current ticket state and follow the matching flow:
 - **Human Review**: Do nothing. Wait for human approval.
 - **Done**: Do nothing. Shut down.
 
-To transition issue states, use curl with the Linear GraphQL API:
-```bash
-curl -s -X POST https://api.linear.app/graphql \
-  -H "Content-Type: application/json" \
-  -H "Authorization: $LINEAR_API_KEY" \
-  -d '{"query":"mutation { issueUpdate(id: \"{{ issue.id }}\", input: { stateId: \"STATE_ID\" }) { success } }"}'
-```
+To interact with Linear, use the Linear MCP tools (available as `mcp_linear_*`). Do NOT use curl for Linear API calls.
 
-To find state IDs, query the team's workflow states first:
-```bash
-curl -s -X POST https://api.linear.app/graphql \
-  -H "Content-Type: application/json" \
-  -H "Authorization: $LINEAR_API_KEY" \
-  -d '{"query":"{ workflowStates { nodes { id name } } }"}' | jq '.data.workflowStates.nodes'
-```
+To transition issue states, use `mcp_linear_update_issue` with the issue ID and the target state name.
+To find the issue details, use `mcp_linear_get_issue` with the issue identifier (e.g., `AIE-7`).
+To list workflow states, use `mcp_linear_list_issues` or query via the tool's capabilities.
 
 ## Workpad Comment
 
-Create a single persistent comment on the Linear issue as your progress tracker. Use this exact structure:
+IMPORTANT: Before creating a workpad, ALWAYS search for an existing one first.
+Use `mcp_linear_list_comments` with the issue ID to list all comments, then check if any start with "## Workpad".
+
+If a workpad comment already exists, reuse it by updating with `mcp_linear_update_comment` using the existing comment ID. Do NOT create a duplicate.
+
+Only create a new workpad comment if none exists. Use `mcp_linear_create_comment` with the issue ID and the workpad body. Use this exact structure:
 
 ```markdown
 ## Workpad
@@ -96,15 +97,9 @@ Create a single persistent comment on the Linear issue as your progress tracker.
 - (progress updates)
 ```
 
-To create a comment on the issue:
-```bash
-curl -s -X POST https://api.linear.app/graphql \
-  -H "Content-Type: application/json" \
-  -H "Authorization: $LINEAR_API_KEY" \
-  -d '{"query":"mutation { commentCreate(input: { issueId: \"{{ issue.id }}\", body: \"COMMENT_BODY\" }) { success } }"}'
-```
+Update the same comment as you make progress using `mcp_linear_update_comment` with the comment ID.
 
-Update the same comment as you make progress. To update a comment, use `commentUpdate` with the comment ID.
+IMPORTANT: Always use the Linear MCP tools (`mcp_linear_*`) for ALL Linear operations. Never use curl for Linear API calls — the MCP tools handle auth, escaping, and structured responses automatically.
 
 ## Execution Steps
 
