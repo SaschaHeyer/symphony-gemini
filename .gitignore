@@ -1,4 +1,4 @@
 bin/
-symphony
+/symphony
 *.log
 .DS_Store
