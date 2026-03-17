@@ -19,18 +19,39 @@ WORKFLOW.md (config + prompt)
 └─────────────┘
 ```
 
-**Key components:**
+## Workflows & Customization
 
-| Component | Package | Purpose |
+Symphony is driven by `WORKFLOW.md` files. You can create different workflow files to match your team's process, from full automation to strict human-in-the-loop approvals.
+
+### Included Workflows
+
+| Workflow | File | Strategy | Best For |
+|---|---|---|---|
+| **Autonomous** | `WORKFLOW.md` | Full Automation | Rapid prototyping, bug fixes, trusted tasks. |
+| **Planning First** | `WORKFLOW-PLAN.md` | Human-in-the-loop | Complex features, production changes, architectural shifts. |
+
+#### Workflow Comparison
+
+| Feature | Autonomous (`WORKFLOW.md`) | Planning First (`WORKFLOW-PLAN.md`) |
 |---|---|---|
-| Workflow Loader | `internal/workflow` | Parses `WORKFLOW.md` (YAML front matter + Liquid prompt) |
-| Config Layer | `internal/config` | Typed config with defaults, `$VAR` resolution, hot reload |
-| Linear Client | `internal/tracker` | GraphQL client for fetching/refreshing issues |
-| Orchestrator | `internal/orchestrator` | Poll loop, dispatch, concurrency, reconciliation, retry |
-| Workspace Manager | `internal/workspace` | Per-issue directory lifecycle + hooks |
-| Agent Runner | `internal/agent` | ACP protocol client, multi-turn session management |
-| Prompt Renderer | `internal/prompt` | Liquid-compatible strict template rendering |
-| HTTP Server | `internal/server` | Optional dashboard + JSON API |
+| **Initial Action** | Moves to `In Progress` immediately. | Analyzes code and creates a technical plan. |
+| **Approval Gate** | None. Proceeds to implementation. | Stops in `Plan Review` for human feedback. |
+| **Execution** | Continuous turn loop until PR. | Only starts coding after move to `Plan Approved`. |
+| **Risk Profile** | High speed, less oversight. | Higher quality, safe for sensitive codebases. |
+
+### Creating Custom Workflows
+
+You can tailor Symphony to any organizational need by creating a new `.md` file with a YAML header.
+
+**Common customization ideas:**
+- **Security Auditor**: A workflow that only runs security scans and reports findings to Linear comments.
+- **Documentation Agent**: A workflow that focuses on updating `README` and `DOCS` based on code changes.
+- **Issue Triage**: A workflow that analyzes new issues, adds labels, and suggests a priority without writing code.
+
+To use a custom workflow:
+```bash
+./bin/symphony my-custom-workflow.md
+```
 
 ## Prerequisites
 
@@ -188,7 +209,7 @@ Use `$VAR_NAME` syntax in path fields to reference environment variables.
 ./bin/symphony
 
 # Explicit workflow path
-./bin/symphony /path/to/WORKFLOW.md
+./bin/symphony WORKFLOW-PLAN.md
 
 # With HTTP dashboard
 ./bin/symphony --port 8080
