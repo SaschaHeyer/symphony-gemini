@@ -1,0 +1,15 @@
+Symphony Go
+Copyright 2026 Sascha Heyer
+
+This project is a from-scratch Go implementation of the Symphony specification.
+It is not a port or fork of the reference Elixir implementation.
+
+This project implements the Symphony Service Specification (SPEC.md), which is
+part of the Symphony project by OpenAI:
+
+  Symphony - https://github.com/openai/symphony
+  Copyright 2025 OpenAI
+  Licensed under the Apache License, Version 2.0
+
+The specification (SPEC.md) was used as the design reference for this
+implementation. No source code was copied from the original project.
