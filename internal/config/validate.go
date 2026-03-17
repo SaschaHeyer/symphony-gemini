@@ -27,11 +27,6 @@ func ValidateDispatchConfig(cfg *Config) error {
 		errs = append(errs, fmt.Sprintf("tracker.kind %q is not supported (only \"linear\")", cfg.Tracker.Kind))
 	}
 
-	// tracker.api_key must be non-empty after resolution
-	if cfg.Tracker.APIKey == "" {
-		errs = append(errs, "tracker.api_key is required (must be non-empty after $VAR resolution)")
-	}
-
 	// tracker.project_slug must be present for linear
 	if cfg.Tracker.Kind == "linear" && cfg.Tracker.ProjectSlug == "" {
 		errs = append(errs, "tracker.project_slug is required when tracker.kind is \"linear\"")

@@ -43,7 +43,12 @@ WORKFLOW.md (config + prompt)
    ```
    Verify: `gemini --version`
 
-3. **Linear API key** — get one from [Linear Settings → API → Personal API keys](https://linear.app/settings/api)
+3. **Linear MCP** — installed and configured in Gemini CLI
+   ```bash
+   # Use the official Linear MCP extension
+   gemini extensions install @google/mcp-linear
+   ```
+   *Note: Ensure your `~/.gemini/settings.json` is configured with a valid Linear API key.*
 
 4. **Linear project slug** — from your project URL:
    `https://linear.app/yourteam/project/my-project-abc123` → slug is `my-project-abc123`
@@ -70,10 +75,9 @@ All configuration lives in a single `WORKFLOW.md` file. The file has two parts:
 ---
 tracker:
   kind: linear
-  api_key: $LINEAR_API_KEY
   project_slug: my-project-slug
 gemini:
-  command: "gemini --experimental-acp"
+  command: "gemini --acp"
   model: gemini-3.1-pro-preview
 ---
 You are working on issue {{ issue.identifier }}: {{ issue.title }}.
@@ -87,7 +91,6 @@ You are working on issue {{ issue.identifier }}: {{ issue.title }}.
 ---
 tracker:
   kind: linear                          # required, only "linear" supported
-  api_key: $LINEAR_API_KEY              # required, supports $VAR env resolution
   project_slug: my-project              # required for linear
   endpoint: https://api.linear.app/graphql  # default
   active_states:                        # default: ["Todo", "In Progress"]
@@ -125,7 +128,7 @@ agent:
     in progress: 5
 
 gemini:
-  command: "gemini --experimental-acp"  # default
+  command: "gemini --acp"               # default
   model: gemini-3.1-pro-preview         # default
   turn_timeout_ms: 3600000              # default: 3600000 (1 hour)
   read_timeout_ms: 5000                 # default: 5000 (5s)
@@ -174,9 +177,9 @@ The prompt body is rendered with [Liquid](https://shopify.github.io/liquid/) syn
 
 | Variable | Purpose |
 |---|---|
-| `LINEAR_API_KEY` | Linear API authentication token |
+| `LINEAR_API_KEY` | (Optional) Used by the backend for polling if `tracker.api_key` is not specified. |
 
-Use `$VAR_NAME` syntax in `tracker.api_key` and path fields to reference environment variables.
+Use `$VAR_NAME` syntax in path fields to reference environment variables.
 
 ## Run
 
@@ -262,8 +265,8 @@ The prompt should tell Gemini:
 1. **What it's working on** — use template variables like `{{ issue.identifier }}` and `{{ issue.title }}`
 2. **Where the code is** — mention the repo so Gemini understands the context
 3. **What steps to follow** — be explicit about branching, committing, pushing, PR creation
-4. **What tools to use** — Gemini can run shell commands, so tell it to use `git`, `gh`, `npm`, etc.
-5. **What to do when done** — create a PR, link to Linear, etc.
+4. **What tools to use** — Gemini can use Linear MCP tools (`mcp_linear_*`) and run shell commands.
+5. **What to do when done** — move issue to review, create a PR, etc.
 
 ### Example: Full workflow prompt
 
@@ -278,12 +281,14 @@ You are working in a checkout of https://github.com/your-org/your-repo.
 
 ## Instructions
 1. Make the code changes needed to resolve this issue.
-2. Create a new branch: `git checkout -b {{ issue.identifier }}`
-3. Commit your changes with a clear message referencing the issue.
-4. Push the branch: `git push origin {{ issue.identifier }}`
-5. Create a pull request:
+2. Use `mcp_linear_update_issue` to move the issue to `In Progress`.
+3. Create a new branch: `git checkout -b {{ issue.identifier }}`
+4. Commit your changes with a clear message referencing the issue.
+5. Push the branch: `git push origin {{ issue.identifier }}`
+6. Create a pull request:
    `gh pr create --title "{{ issue.identifier }}: {{ issue.title }}" --body "Resolves {{ issue.identifier }}"`
-6. Print the PR URL so it is visible in the logs.
+7. Use `mcp_linear_create_comment` to add the PR link to the issue.
+8. Move the issue to `Human Review`.
 
 When you are done, do NOT leave the issue in Todo.
 The issue will be picked up again if it stays active.
@@ -296,24 +301,10 @@ This is retry attempt {{ attempt }}. Check previous work and continue.
 ### Key principles
 
 - **Be explicit.** Gemini does what you tell it. If you don't say "create a PR", it won't.
-- **Symphony doesn't write to Linear.** It only reads issues. Ticket state transitions (Todo → Done) must be done by Gemini via tools, by you manually, or via Linear's GitHub integration.
+- **Use Linear MCP tools.** These tools (`mcp_linear_*`) allow the agent to interact with Linear directly without needing Symphony to manage the API key.
 - **Use `gh` CLI for PRs.** If `gh` is installed and authenticated on the machine, Gemini can create PRs directly.
-- **Use Linear's GitHub integration for linking.** Including `Resolves AIE-123` in a PR body auto-links it in Linear when the [GitHub integration](https://linear.app/settings/integrations/github) is enabled.
-- **Handle retries.** Use `{% if attempt %}` to give different instructions on retry (e.g., "check what was already done").
-- **Hooks handle repo setup.** The prompt assumes the workspace already has code — use `after_create` to clone and `before_run` to pull.
-
-### Prompt + hooks work together
-
-| Concern | Where to configure |
-|---|---|
-| Clone the repo | `hooks.after_create` |
-| Pull latest before each run | `hooks.before_run` |
-| What code changes to make | Prompt body |
-| Branching strategy | Prompt body |
-| PR creation | Prompt body (using `gh`) |
-| Linking PR to Linear | Prompt body (`Resolves {{ issue.identifier }}`) |
-| Moving ticket state | Prompt body or manual in Linear |
-| Cleanup after terminal | Automatic (Symphony deletes workspace) |
+- **Use Linear's GitHub integration for linking.** Including `Resolves AIE-123` in a PR body auto-links it in Linear.
+- **Handle retries.** Use `{% if attempt %}` to give different instructions on retry.
 
 ### Workspace location
 
@@ -323,15 +314,6 @@ Each issue gets its own directory under `workspace.root`:
 ~/symphony_workspaces/
   AIE-7/          ← cloned repo for issue AIE-7
   AIE-8/          ← cloned repo for issue AIE-8
-```
-
-You can inspect what the agent is doing at any time:
-
-```bash
-cd ~/symphony_workspaces/AIE-7
-git log --oneline -5    # see what was committed
-git diff                # see uncommitted changes
-ls -la                  # see workspace contents
 ```
 
 ## Development
