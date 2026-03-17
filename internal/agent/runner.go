@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/symphony-go/symphony/internal/config"
@@ -36,6 +37,7 @@ type RunParams struct {
 	Workflow        *workflow.WorkflowDefinition
 	GeminiCfg       *config.GeminiConfig
 	AgentCfg        *config.AgentConfig
+	ActiveStates    []string
 	WorkspaceMgr    *workspace.Manager
 	WorkspaceRoot   string
 	ExtraEnv        []string // additional env vars for the agent subprocess
@@ -231,9 +233,16 @@ func buildTurnPrompt(wf *workflow.WorkflowDefinition, issue *tracker.Issue, atte
 }
 
 func isActiveState(state string, params RunParams) bool {
-	// This is a simple check; the orchestrator has the full config.
-	// Here we just check it's not obviously non-active.
-	return state != ""
+	if state == "" {
+		return false
+	}
+	lowerState := strings.ToLower(state)
+	for _, s := range params.ActiveStates {
+		if strings.ToLower(s) == lowerState {
+			return true
+		}
+	}
+	return false
 }
 
 func classifyUpdate(update *SessionUpdateParams) string {
