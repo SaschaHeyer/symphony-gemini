@@ -335,6 +335,12 @@ claude:
 
 server:
   port: 8080                            # optional, enables HTTP dashboard
+
+# --- cmux visibility (macOS only) ---
+cmux:
+  enabled: true                         # default: false — opt-in
+  workspace_name: "Symphony"            # default: "Symphony" (cosmetic, used for naming)
+  close_delay_ms: 30000                 # default: 30000 (30s before closing finished tabs)
 ---
 You are working on issue {{ issue.identifier }}: {{ issue.title }}.
 
@@ -429,6 +435,65 @@ When a port is configured (via `--port` flag or `server.port` in config):
 | `/api/v1/refresh` | POST | Trigger an immediate poll + reconciliation cycle |
 
 The server binds to `127.0.0.1` (localhost only).
+
+## cmux Session Visibility
+
+When running on macOS with [cmux](https://cmux.dev), Symphony can show **live, color-coded agent output** in dedicated terminal workspaces — one per dispatched issue.
+
+### What you see
+
+Each active issue gets its own cmux workspace (tab) named after the issue identifier (e.g., `AIE-12`). Inside, a live stream shows what the agent is doing:
+
+```
+ 16:42:33  ── ACP initialized — agent: gemini, protocol: 1 ──
+ 16:42:33  ── Starting turn 1 of 15 ──
+ 16:42:35  TOOL   src/app/page.tsx  in_progress
+ 16:42:35  FAIL   File not found: /Users/sascha/...
+ 16:42:37  THINK  Examining the Codebase...
+ 16:42:37  AGENT  I'll list the contents of the src/app directory...
+ 16:42:38  TOOL   list_directory: src/app  completed
+ 16:42:45  ── Turn 1 completed — end_turn ──
+```
+
+Events are color-coded: `TOOL` in yellow, `AGENT` in cyan, `THINK` in gray, `FAIL` in red, `DONE` in green. Timestamps are dim. Annotations (turn start/end, session info) appear as highlighted separator lines.
+
+### Enabling cmux visibility
+
+Add the `cmux` section to your WORKFLOW.md config:
+
+```yaml
+cmux:
+  enabled: true
+```
+
+That's it. Symphony will:
+1. Detect the cmux binary and verify connectivity on startup
+2. Create a cmux workspace per dispatched issue, running `tail -f` on the agent's event log
+3. Rename each workspace to the issue identifier (e.g., `AIE-12`)
+4. Stream formatted events as the agent works
+5. Close the workspace 30 seconds after the agent finishes (configurable via `close_delay_ms`)
+
+### How it works under the hood
+
+- Agent processes still run as hidden subprocesses with pipe-based I/O — cmux is a **display-only mirror**, not part of the process lifecycle
+- As the runner receives protocol events (ACP JSON-RPC for Gemini, NDJSON for Claude), it writes formatted lines to `<workspace>/.symphony-agent.log`
+- Each cmux workspace runs `tail -f` on that log file for real-time display
+- Works uniformly for both Gemini and Claude Code backends
+- If cmux is not installed or not running, Symphony continues normally with zero impact
+
+### Configuration
+
+| Field | Default | Description |
+|---|---|---|
+| `cmux.enabled` | `false` | Enable cmux visibility (opt-in) |
+| `cmux.workspace_name` | `"Symphony"` | Display name (cosmetic) |
+| `cmux.close_delay_ms` | `30000` | Milliseconds to keep workspace open after agent finishes |
+
+### Requirements
+
+- **macOS only** — cmux is a native macOS application
+- cmux must be installed and running (socket at `/tmp/cmux.sock`)
+- cmux binary must be in PATH or at `/Applications/cmux.app/Contents/Resources/bin/cmux`
 
 ## How it works
 
@@ -600,6 +665,7 @@ make run
 │   │   ├── claude_runner.go      # Claude Code runner (NDJSON streaming)
 │   │   ├── ndjson.go             # NDJSON line-accumulator parser
 │   │   └── events.go             # Event types for orchestrator
+│   ├── cmux/                     # cmux session visibility (macOS)
 │   ├── prompt/                   # Liquid template rendering
 │   ├── server/                   # HTTP dashboard + JSON API
 │   └── logging/                  # slog JSON setup
