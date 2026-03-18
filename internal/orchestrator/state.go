@@ -20,13 +20,14 @@ type State struct {
 	RetryAttempts map[string]*RetryEntry
 	Completed     map[string]struct{}
 
-	GeminiTotals TokenTotals
-	RateLimits   map[string]any
+	AgentTotals TokenTotals
+	RateLimits  map[string]any
 
 	// Config info for dashboard
-	GeminiModel   string
-	GeminiCommand string
-	ProjectSlug   string
+	AgentModel   string
+	AgentCommand string
+	BackendKind  string
+	ProjectSlug  string
 }
 
 // RunningEntry tracks a running worker.
@@ -36,7 +37,7 @@ type RunningEntry struct {
 	Issue        *tracker.Issue
 	Cancel       context.CancelFunc
 	SessionID    string
-	GeminiPID    string
+	AgentPID     string
 	LastMessage  string
 	LastEvent    string
 	LastEventAt  *time.Time
@@ -90,14 +91,15 @@ type StateSnapshot struct {
 	Counts       SnapshotCounts         `json:"counts"`
 	Running      []RunningSnapshot      `json:"running"`
 	Retrying     []RetrySnapshot        `json:"retrying"`
-	GeminiTotals TokenTotalsSnapshot    `json:"codex_totals"`
+	AgentTotals  TokenTotalsSnapshot    `json:"agent_totals"`
 	RateLimits   map[string]any         `json:"rate_limits"`
 }
 
 type ConfigSnapshot struct {
-	GeminiModel   string `json:"gemini_model"`
-	GeminiCommand string `json:"gemini_command"`
-	ProjectSlug   string `json:"project_slug"`
+	AgentModel   string `json:"agent_model"`
+	AgentCommand string `json:"agent_command"`
+	BackendKind  string `json:"backend_kind"`
+	ProjectSlug  string `json:"project_slug"`
 	PollIntervalMs int   `json:"poll_interval_ms"`
 	MaxConcurrent  int   `json:"max_concurrent_agents"`
 }
@@ -184,8 +186,9 @@ func (s *State) Snapshot() StateSnapshot {
 	return StateSnapshot{
 		GeneratedAt: now,
 		Config: ConfigSnapshot{
-			GeminiModel:    s.GeminiModel,
-			GeminiCommand:  s.GeminiCommand,
+			AgentModel:     s.AgentModel,
+			AgentCommand:   s.AgentCommand,
+			BackendKind:    s.BackendKind,
 			ProjectSlug:    s.ProjectSlug,
 			PollIntervalMs: s.PollIntervalMs,
 			MaxConcurrent:  s.MaxConcurrentAgents,
@@ -196,11 +199,11 @@ func (s *State) Snapshot() StateSnapshot {
 		},
 		Running:  running,
 		Retrying: retrying,
-		GeminiTotals: TokenTotalsSnapshot{
-			InputTokens:    s.GeminiTotals.InputTokens,
-			OutputTokens:   s.GeminiTotals.OutputTokens,
-			TotalTokens:    s.GeminiTotals.TotalTokens,
-			SecondsRunning: s.GeminiTotals.SecondsRunning + liveSeconds,
+		AgentTotals: TokenTotalsSnapshot{
+			InputTokens:    s.AgentTotals.InputTokens,
+			OutputTokens:   s.AgentTotals.OutputTokens,
+			TotalTokens:    s.AgentTotals.TotalTokens,
+			SecondsRunning: s.AgentTotals.SecondsRunning + liveSeconds,
 		},
 		RateLimits: s.RateLimits,
 	}

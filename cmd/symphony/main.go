@@ -74,9 +74,14 @@ func main() {
 	// Create components
 	linearClient := tracker.NewLinearClient(resolved.Tracker.Endpoint, resolved.Tracker.APIKey)
 	workspaceMgr := workspace.NewManager(resolved.Workspace.Root, &resolved.Hooks)
-	geminiRunner := agent.NewGeminiRunner()
 
-	orch := orchestrator.New(resolved, wf, linearClient, geminiRunner, workspaceMgr)
+	launcher, err := agent.NewLauncher(resolved.Backend)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+
+	orch := orchestrator.New(resolved, wf, linearClient, launcher, workspaceMgr)
 
 	// Start workflow watcher
 	stopWatch, err := workflow.WatchWorkflow(workflowPath, func(newWf *workflow.WorkflowDefinition, newCfg *config.Config) {
@@ -124,12 +129,21 @@ func main() {
 		cancel()
 	}()
 
+	// Determine agent model/command for logging
+	agentModel := resolved.Gemini.Model
+	agentCommand := resolved.Gemini.Command
+	if resolved.Backend == "claude" {
+		agentModel = resolved.Claude.Model
+		agentCommand = resolved.Claude.Command
+	}
+
 	slog.Info("symphony-go starting",
 		"version", version,
+		"backend", resolved.Backend,
 		"tracker", resolved.Tracker.Kind,
 		"project", resolved.Tracker.ProjectSlug,
-		"gemini_command", resolved.Gemini.Command,
-		"gemini_model", resolved.Gemini.Model,
+		"agent_command", agentCommand,
+		"agent_model", agentModel,
 		"workspace_root", resolved.Workspace.Root,
 		"poll_interval_ms", resolved.Polling.IntervalMs,
 	)

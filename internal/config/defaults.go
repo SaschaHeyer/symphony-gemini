@@ -8,6 +8,7 @@ import (
 // DefaultConfig returns a Config with all spec-defined default values.
 func DefaultConfig() Config {
 	return Config{
+		Backend: "gemini",
 		Tracker: TrackerConfig{
 			Endpoint:       "https://api.linear.app/graphql",
 			ActiveStates:   []string{"Todo", "In Progress"},
@@ -35,6 +36,14 @@ func DefaultConfig() Config {
 			ReadTimeoutMs:  5000,
 			StallTimeoutMs: 300000,
 		},
-
+		Claude: ClaudeConfig{
+			Command:        "claude",
+			Model:          "claude-sonnet-4-6",
+			PermissionMode: "bypassPermissions",
+			AllowedTools:   []string{"Read", "Write", "Edit", "Bash"},
+			MaxTurns:       25,
+			TurnTimeoutMs:  600000,
+			StallTimeoutMs: 300000,
+		},
 	}
 }

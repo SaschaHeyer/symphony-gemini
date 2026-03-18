@@ -44,9 +44,17 @@ func New(
 	workspaceMgr *workspace.Manager,
 ) *Orchestrator {
 	state := NewState(cfg.Polling.IntervalMs, cfg.Agent.MaxConcurrentAgents)
-	state.GeminiModel = cfg.Gemini.Model
-	state.GeminiCommand = cfg.Gemini.Command
 	state.ProjectSlug = cfg.Tracker.ProjectSlug
+
+	if cfg.Backend == "claude" {
+		state.AgentModel = cfg.Claude.Model
+		state.AgentCommand = cfg.Claude.Command
+		state.BackendKind = "claude"
+	} else {
+		state.AgentModel = cfg.Gemini.Model
+		state.AgentCommand = cfg.Gemini.Command
+		state.BackendKind = "gemini"
+	}
 
 	return &Orchestrator{
 		state:        state,
@@ -208,6 +216,7 @@ func (o *Orchestrator) dispatchIssue(ctx context.Context, issue *tracker.Issue, 
 
 	wf := o.getWorkflow()
 	geminiCfg := cfg.Gemini
+	claudeCfg := cfg.Claude
 	agentCfg := cfg.Agent
 
 	slog.Info("dispatching issue",
@@ -222,6 +231,7 @@ func (o *Orchestrator) dispatchIssue(ctx context.Context, issue *tracker.Issue, 
 			Attempt:       attempt,
 			Workflow:      wf,
 			GeminiCfg:     &geminiCfg,
+			ClaudeCfg:     &claudeCfg,
 			AgentCfg:      &agentCfg,
 			ActiveStates:  cfg.Tracker.ActiveStates,
 			WorkspaceMgr:  o.workspaceMgr,
@@ -393,9 +403,24 @@ func (o *Orchestrator) applyReload(reload ReloadPayload, ticker *time.Ticker) {
 	ticker.Reset(newInterval)
 	o.state.PollIntervalMs = reload.Config.Polling.IntervalMs
 	o.state.MaxConcurrentAgents = reload.Config.Agent.MaxConcurrentAgents
-	o.state.GeminiModel = reload.Config.Gemini.Model
-	o.state.GeminiCommand = reload.Config.Gemini.Command
 	o.state.ProjectSlug = reload.Config.Tracker.ProjectSlug
+
+	// Warn if backend changed on reload (restart required)
+	if reload.Config.Backend != o.state.BackendKind && reload.Config.Backend != "" {
+		slog.Warn("backend changed on reload — restart required for this to take effect",
+			"current", o.state.BackendKind,
+			"new", reload.Config.Backend,
+		)
+	}
+
+	// Update agent model/command based on active backend
+	if reload.Config.Backend == "claude" {
+		o.state.AgentModel = reload.Config.Claude.Model
+		o.state.AgentCommand = reload.Config.Claude.Command
+	} else {
+		o.state.AgentModel = reload.Config.Gemini.Model
+		o.state.AgentCommand = reload.Config.Gemini.Command
+	}
 
 	// Update workspace manager hooks
 	o.workspaceMgr.UpdateConfig(&reload.Config.Hooks)

@@ -9,12 +9,14 @@ import (
 
 // Config is the typed service configuration derived from WORKFLOW.md front matter.
 type Config struct {
+	Backend   string          `yaml:"backend"   json:"backend"`
 	Tracker   TrackerConfig   `yaml:"tracker"   json:"tracker"`
 	Polling   PollingConfig   `yaml:"polling"   json:"polling"`
 	Workspace WorkspaceConfig `yaml:"workspace" json:"workspace"`
 	Hooks     HooksConfig     `yaml:"hooks"     json:"hooks"`
 	Agent     AgentConfig     `yaml:"agent"     json:"agent"`
 	Gemini    GeminiConfig    `yaml:"gemini"    json:"gemini"`
+	Claude    ClaudeConfig    `yaml:"claude"    json:"claude"`
 	Server    ServerConfig    `yaml:"server"    json:"server"`
 }
 
@@ -58,6 +60,16 @@ type GeminiConfig struct {
 	StallTimeoutMs int    `yaml:"stall_timeout_ms" json:"stall_timeout_ms"`
 }
 
+type ClaudeConfig struct {
+	Command        string   `yaml:"command"          json:"command"`
+	Model          string   `yaml:"model"            json:"model"`
+	PermissionMode string   `yaml:"permission_mode"  json:"permission_mode"`
+	AllowedTools   []string `yaml:"allowed_tools"    json:"allowed_tools"`
+	MaxTurns       int      `yaml:"max_turns"        json:"max_turns"`
+	TurnTimeoutMs  int      `yaml:"turn_timeout_ms"  json:"turn_timeout_ms"`
+	StallTimeoutMs int      `yaml:"stall_timeout_ms" json:"stall_timeout_ms"`
+}
+
 type ServerConfig struct {
 	Port *int `yaml:"port" json:"port"`
 }
@@ -76,6 +88,14 @@ func ParseConfig(raw map[string]any) (*Config, error) {
 		if codexVal, hasCodex := raw["codex"]; hasCodex {
 			raw["gemini"] = codexVal
 			delete(raw, "codex")
+		}
+	}
+
+	// Alias: if raw has "claude_code" but not "claude", rename it
+	if _, hasClaude := raw["claude"]; !hasClaude {
+		if claudeCodeVal, hasClaudeCode := raw["claude_code"]; hasClaudeCode {
+			raw["claude"] = claudeCodeVal
+			delete(raw, "claude_code")
 		}
 	}
 
@@ -107,6 +127,7 @@ func applyDefaults(cfg *Config, defaults *Config, raw map[string]any) {
 	hooksRaw, _ := raw["hooks"].(map[string]any)
 	agentRaw, _ := raw["agent"].(map[string]any)
 	geminiRaw, _ := raw["gemini"].(map[string]any)
+	claudeRaw, _ := raw["claude"].(map[string]any)
 
 	if trackerRaw == nil {
 		cfg.Tracker = defaults.Tracker
@@ -181,6 +202,36 @@ func applyDefaults(cfg *Config, defaults *Config, raw map[string]any) {
 		if _, ok := geminiRaw["stall_timeout_ms"]; !ok {
 			cfg.Gemini.StallTimeoutMs = defaults.Gemini.StallTimeoutMs
 		}
+	}
+
+	if claudeRaw == nil {
+		cfg.Claude = defaults.Claude
+	} else {
+		if _, ok := claudeRaw["command"]; !ok {
+			cfg.Claude.Command = defaults.Claude.Command
+		}
+		if _, ok := claudeRaw["model"]; !ok {
+			cfg.Claude.Model = defaults.Claude.Model
+		}
+		if _, ok := claudeRaw["permission_mode"]; !ok {
+			cfg.Claude.PermissionMode = defaults.Claude.PermissionMode
+		}
+		if _, ok := claudeRaw["allowed_tools"]; !ok {
+			cfg.Claude.AllowedTools = defaults.Claude.AllowedTools
+		}
+		if _, ok := claudeRaw["max_turns"]; !ok {
+			cfg.Claude.MaxTurns = defaults.Claude.MaxTurns
+		}
+		if _, ok := claudeRaw["turn_timeout_ms"]; !ok {
+			cfg.Claude.TurnTimeoutMs = defaults.Claude.TurnTimeoutMs
+		}
+		if _, ok := claudeRaw["stall_timeout_ms"]; !ok {
+			cfg.Claude.StallTimeoutMs = defaults.Claude.StallTimeoutMs
+		}
+	}
+
+	if _, ok := raw["backend"]; !ok {
+		cfg.Backend = defaults.Backend
 	}
 }
 

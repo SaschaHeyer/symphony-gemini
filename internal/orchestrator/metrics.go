@@ -37,7 +37,7 @@ func UpdateTokens(state *State, issueID string, usage *agent.TokenUsage) {
 	entry.LastReportedTotalTokens = usage.TotalTokens
 
 	// Update totals
-	state.GeminiTotals.InputTokens += deltaInput
-	state.GeminiTotals.OutputTokens += deltaOutput
-	state.GeminiTotals.TotalTokens += deltaTotal
+	state.AgentTotals.InputTokens += deltaInput
+	state.AgentTotals.OutputTokens += deltaOutput
+	state.AgentTotals.TotalTokens += deltaTotal
 }

@@ -426,3 +426,43 @@ func TestBeforeRunHookFailure(t *testing.T) {
 		t.Error("expected before_run hook to fail")
 	}
 }
+
+func TestNewLauncher_Gemini(t *testing.T) {
+	launcher, err := NewLauncher("gemini")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, ok := launcher.(*GeminiRunner); !ok {
+		t.Errorf("expected *GeminiRunner, got %T", launcher)
+	}
+}
+
+func TestNewLauncher_Claude(t *testing.T) {
+	launcher, err := NewLauncher("claude")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, ok := launcher.(*ClaudeRunner); !ok {
+		t.Errorf("expected *ClaudeRunner, got %T", launcher)
+	}
+}
+
+func TestNewLauncher_Empty(t *testing.T) {
+	launcher, err := NewLauncher("")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, ok := launcher.(*GeminiRunner); !ok {
+		t.Errorf("expected *GeminiRunner for empty backend, got %T", launcher)
+	}
+}
+
+func TestNewLauncher_Invalid(t *testing.T) {
+	_, err := NewLauncher("unknown")
+	if err == nil {
+		t.Fatal("expected error for unknown backend")
+	}
+	if !strings.Contains(err.Error(), "unsupported backend") {
+		t.Errorf("expected 'unsupported backend' error, got: %v", err)
+	}
+}

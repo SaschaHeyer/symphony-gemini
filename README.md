@@ -1,8 +1,8 @@
 # Symphony Go
 
-A Go implementation of the [Symphony specification](../SPEC.md) — a long-running automation service that reads work from Linear, creates isolated workspaces, and runs a Gemini CLI coding-agent session for each issue.
+A Go implementation of the [Symphony specification](../SPEC.md) — a long-running automation service that reads work from Linear, creates isolated workspaces, and runs AI coding agents for each issue.
 
-This implementation uses **Gemini CLI** (via the [Agent Client Protocol](https://agentclientprotocol.com)) instead of Codex as the coding agent.
+Symphony supports two agent backends: **Gemini CLI** and **Claude Code**. You choose which backend to use per workflow.
 
 ## Architecture
 
@@ -14,30 +14,73 @@ WORKFLOW.md (config + prompt)
 │ Orchestrator │────▶│ Linear API   │     │ Gemini CLI (ACP)   │
 │              │     │ (GraphQL)    │     │ JSON-RPC over stdio│
 │ poll/dispatch│     └──────────────┘     └────────────────────┘
-│ reconcile   │                                    ▲
-│ retry       │──── workspace ──── prompt ─────────┘
-└─────────────┘
+│ reconcile   │                           ┌────────────────────┐
+│ retry       │──── workspace ── prompt ─▶│ Claude Code (NDJSON)│
+└─────────────┘                           │ CLI per turn       │
+                                          └────────────────────┘
 ```
+
+## Agent Backends
+
+Symphony supports two agent backends. Set the `backend` field in your WORKFLOW.md to choose:
+
+| | Gemini CLI | Claude Code |
+|---|---|---|
+| **Config key** | `backend: gemini` (default) | `backend: claude` |
+| **Protocol** | ACP — JSON-RPC 2.0 over stdio (long-running process) | NDJSON stream — one CLI invocation per turn |
+| **Session model** | Single process, session persists in-memory | `--resume <session_id>` across invocations, persisted to `.symphony-session-id` |
+| **Tool access** | Client-side injection (ACP fs/terminal requests) | MCP servers (configured externally via `.mcp.json` or user config) |
+| **Permission handling** | ACP `session/request_permission` auto-approve | `--permission-mode bypassPermissions` flag |
+| **Default model** | `gemini-3.1-pro-preview` | `claude-sonnet-4-6` |
+| **TTY requirement** | None | Requires pseudo-TTY (`script -q /dev/null` wrapper, handled automatically) |
+
+### Gemini CLI Setup
+
+```bash
+npm install -g @google/gemini-cli
+gemini auth login
+```
+
+For Linear integration, install the MCP extension:
+```bash
+gemini extensions install @google/mcp-linear
+```
+
+### Claude Code Setup
+
+```bash
+npm install -g @anthropic-ai/claude-code
+```
+
+For Linear integration, add the MCP server globally:
+```bash
+claude mcp add -s user --transport http linear-server https://mcp.linear.app/mcp
+```
+
+This makes the Linear MCP server available in all workspaces. Alternatively, write a `.mcp.json` file in the workspace via the `after_create` hook for a self-contained setup.
 
 ## Workflows & Customization
 
-Symphony is driven by `WORKFLOW.md` files. You can create different workflow files to match your team's process, from full automation to strict human-in-the-loop approvals.
+Symphony is driven by `WORKFLOW.md` files. You can create different workflow files for different strategies and backends.
 
 ### Included Workflows
 
-| Workflow | File | Strategy | Best For |
-|---|---|---|---|
-| **Autonomous** | `WORKFLOW.md` | Full Automation | Rapid prototyping, bug fixes, trusted tasks. |
-| **Planning First** | `WORKFLOW-PLAN.md` | Human-in-the-loop | Complex features, production changes, architectural shifts. |
+| Workflow | File | Backend | Strategy | Best For |
+|---|---|---|---|---|
+| **Autonomous** | `WORKFLOW.md` | Gemini | Full automation | Rapid prototyping, bug fixes, trusted tasks |
+| **Planning First** | `WORKFLOW-PLAN.md` | Gemini | Human-in-the-loop | Complex features, production changes |
+| **Planning First (Claude)** | `WORKFLOW-PLAN-CLAUDE.md` | Claude Code | Human-in-the-loop | Same as above, using Claude Code as the agent |
 
-#### Workflow Comparison
+#### Strategy Comparison
 
-| Feature | Autonomous (`WORKFLOW.md`) | Planning First (`WORKFLOW-PLAN.md`) |
+| Feature | Autonomous | Planning First |
 |---|---|---|
-| **Initial Action** | Moves to `In Progress` immediately. | Analyzes code and creates a technical plan. |
-| **Approval Gate** | None. Proceeds to implementation. | Stops in `Plan Review` for human feedback. |
-| **Execution** | Continuous turn loop until PR. | Only starts coding after move to `Plan Approved`. |
-| **Risk Profile** | High speed, less oversight. | Higher quality, safe for sensitive codebases. |
+| **Initial Action** | Moves to `In Progress` immediately | Analyzes code and creates a technical plan |
+| **Approval Gate** | None — proceeds to implementation | Stops in `Plan Review` for human feedback |
+| **Execution** | Continuous turn loop until PR | Only starts coding after move to `Plan Approved` |
+| **Risk Profile** | High speed, less oversight | Higher quality, safe for sensitive codebases |
+
+Both strategies work with either backend. The backend determines *which AI agent* runs. The workflow strategy determines *how* it runs (autonomous vs. human-gated).
 
 ### Creating Custom Workflows
 
@@ -57,22 +100,14 @@ To use a custom workflow:
 
 1. **Go 1.25+** — [install](https://go.dev/dl/)
 
-2. **Gemini CLI** — installed and authenticated
-   ```bash
-   npm install -g @google/gemini-cli
-   gemini auth login
-   ```
-   Verify: `gemini --version`
+2. **An agent backend** — at least one of:
+   - **Gemini CLI** — `npm install -g @google/gemini-cli && gemini auth login`
+   - **Claude Code** — `npm install -g @anthropic-ai/claude-code` (requires Anthropic API key or Claude subscription)
 
-3. **Linear MCP** — installed and configured in Gemini CLI
-   ```bash
-   # Use the official Linear MCP extension
-   gemini extensions install @google/mcp-linear
-   ```
-   *Note: Ensure your `~/.gemini/settings.json` is configured with a valid Linear API key.*
-
-4. **Linear project slug** — from your project URL:
+3. **Linear project slug** — from your project URL:
    `https://linear.app/yourteam/project/my-project-abc123` → slug is `my-project-abc123`
+
+4. **Linear MCP** (for agent access to Linear) — see [Agent Backends](#agent-backends) for backend-specific setup
 
 ## Build
 
@@ -90,7 +125,7 @@ All configuration lives in a single `WORKFLOW.md` file. The file has two parts:
 1. **YAML front matter** (between `---` delimiters) — runtime settings
 2. **Markdown body** — the prompt template sent to the agent for each issue
 
-### Minimal WORKFLOW.md
+### Minimal WORKFLOW.md (Gemini)
 
 ```yaml
 ---
@@ -106,10 +141,29 @@ You are working on issue {{ issue.identifier }}: {{ issue.title }}.
 {{ issue.description }}
 ```
 
+### Minimal WORKFLOW.md (Claude Code)
+
+```yaml
+---
+backend: claude
+tracker:
+  kind: linear
+  project_slug: my-project-slug
+claude:
+  command: claude
+  model: claude-sonnet-4-6
+---
+You are working on issue {{ issue.identifier }}: {{ issue.title }}.
+
+{{ issue.description }}
+```
+
 ### Full WORKFLOW.md reference
 
 ```yaml
 ---
+backend: gemini                           # "gemini" (default) or "claude"
+
 tracker:
   kind: linear                          # required, only "linear" supported
   project_slug: my-project              # required for linear
@@ -142,17 +196,33 @@ hooks:
 
 agent:
   max_concurrent_agents: 5              # default: 10
-  max_turns: 10                         # default: 20
+  max_turns: 10                         # default: 20, orchestrator-level turn loop
   max_retry_backoff_ms: 300000          # default: 300000 (5 min)
   max_concurrent_agents_by_state:       # optional per-state caps
     todo: 2
     in progress: 5
 
+# --- Gemini backend config (used when backend: gemini) ---
 gemini:
   command: "gemini --acp"               # default
   model: gemini-3.1-pro-preview         # default
   turn_timeout_ms: 3600000              # default: 3600000 (1 hour)
   read_timeout_ms: 5000                 # default: 5000 (5s)
+  stall_timeout_ms: 300000              # default: 300000 (5 min), 0 disables
+
+# --- Claude Code backend config (used when backend: claude) ---
+claude:
+  command: claude                       # default
+  model: claude-sonnet-4-6              # default
+  permission_mode: bypassPermissions    # default, auto-approves all tool use
+  allowed_tools:                        # default: ["Read", "Write", "Edit", "Bash"]
+    - Read
+    - Write
+    - Edit
+    - Bash
+    - "Bash(git *)"
+  max_turns: 25                         # default: 25, per-invocation Claude turns
+  turn_timeout_ms: 600000               # default: 600000 (10 min per invocation)
   stall_timeout_ms: 300000              # default: 300000 (5 min), 0 disables
 
 server:
@@ -240,10 +310,10 @@ The server binds to `127.0.0.1` (localhost only).
 
 1. **Poll** — Every `polling.interval_ms`, fetch candidate issues from Linear
 2. **Dispatch** — Sort by priority, check eligibility (concurrency, blockers), launch workers
-3. **Worker** — Create workspace → run hooks → start Gemini CLI via ACP → multi-turn session
+3. **Worker** — Create workspace → run hooks → launch agent (Gemini or Claude) → multi-turn session
 4. **Reconcile** — Each tick, check tracker state for running issues (stop on terminal, update on active)
 5. **Retry** — Normal exit → 1s continuation retry; failure → exponential backoff (10s base, capped)
-6. **Reload** — `WORKFLOW.md` changes are detected and applied without restart
+6. **Reload** — `WORKFLOW.md` changes are detected and applied without restart (backend change requires restart)
 
 ### Workspace lifecycle
 
@@ -259,9 +329,9 @@ The server binds to `127.0.0.1` (localhost only).
 - `before_run` hook runs before each attempt (e.g., git pull)
 - Cleaned up when issue enters a terminal state
 
-### Agent protocol
+### Agent protocols
 
-Symphony communicates with Gemini CLI using the [Agent Client Protocol (ACP)](https://agentclientprotocol.com) — JSON-RPC 2.0 over stdio:
+**Gemini CLI (ACP)** — Long-running JSON-RPC 2.0 process over stdio:
 
 ```
 Symphony ──initialize──▶ Gemini CLI
@@ -275,18 +345,36 @@ Symphony ──initialize──▶ Gemini CLI
 
 Permission requests (`session/request_permission`) are auto-approved (high-trust mode).
 
+**Claude Code (NDJSON)** — One CLI invocation per turn with streaming JSON output:
+
+```
+Symphony ── claude -p "<prompt>" --output-format stream-json ──▶ Claude Code
+         ◀── {"type":"system","subtype":"init","session_id":"..."} ──
+         ◀── {"type":"assistant","message":{...}} ──  (streaming)
+         ◀── {"type":"result","subtype":"success",...} ──
+         (process exits)
+
+Next turn:
+Symphony ── claude -p "<prompt>" --resume <session_id> ──▶ Claude Code
+         ◀── ... ──
+```
+
+Session continuity is maintained via `--resume <session_id>`. The session ID is persisted to `.symphony-session-id` in the workspace directory.
+
+Claude Code requires a TTY to produce `stream-json` output. Symphony wraps the process in `script -q /dev/null` to allocate a pseudo-TTY automatically.
+
 ## Writing the Prompt (Instructing the Agent)
 
-The prompt in `WORKFLOW.md` is the **only way you control what Gemini does**. Symphony is a scheduler — it picks up issues, creates workspaces, and launches the agent. Everything else is determined by your prompt.
+The prompt in `WORKFLOW.md` is the **only way you control what the agent does**. Symphony is a scheduler — it picks up issues, creates workspaces, and launches the agent. Everything else is determined by your prompt.
+
+The same prompt works with both Gemini and Claude Code. The agents have different capabilities, but both can read/write files, run shell commands, and use MCP tools.
 
 ### What to include in your prompt
 
-The prompt should tell Gemini:
-
 1. **What it's working on** — use template variables like `{{ issue.identifier }}` and `{{ issue.title }}`
-2. **Where the code is** — mention the repo so Gemini understands the context
+2. **Where the code is** — mention the repo so the agent understands the context
 3. **What steps to follow** — be explicit about branching, committing, pushing, PR creation
-4. **What tools to use** — Gemini can use Linear MCP tools (`mcp_linear_*`) and run shell commands.
+4. **What tools to use** — both backends support Linear MCP tools and shell commands
 5. **What to do when done** — move issue to review, create a PR, etc.
 
 ### Example: Full workflow prompt
@@ -302,13 +390,13 @@ You are working in a checkout of https://github.com/your-org/your-repo.
 
 ## Instructions
 1. Make the code changes needed to resolve this issue.
-2. Use `mcp_linear_update_issue` to move the issue to `In Progress`.
+2. Use the Linear MCP tools to move the issue to `In Progress`.
 3. Create a new branch: `git checkout -b {{ issue.identifier }}`
 4. Commit your changes with a clear message referencing the issue.
 5. Push the branch: `git push origin {{ issue.identifier }}`
 6. Create a pull request:
    `gh pr create --title "{{ issue.identifier }}: {{ issue.title }}" --body "Resolves {{ issue.identifier }}"`
-7. Use `mcp_linear_create_comment` to add the PR link to the issue.
+7. Add the PR link to the issue as a comment.
 8. Move the issue to `Human Review`.
 
 When you are done, do NOT leave the issue in Todo.
@@ -321,9 +409,9 @@ This is retry attempt {{ attempt }}. Check previous work and continue.
 
 ### Key principles
 
-- **Be explicit.** Gemini does what you tell it. If you don't say "create a PR", it won't.
-- **Use Linear MCP tools.** These tools (`mcp_linear_*`) allow the agent to interact with Linear directly without needing Symphony to manage the API key.
-- **Use `gh` CLI for PRs.** If `gh` is installed and authenticated on the machine, Gemini can create PRs directly.
+- **Be explicit.** The agent does what you tell it. If you don't say "create a PR", it won't.
+- **Use Linear MCP tools.** Both backends discover MCP tools automatically — Gemini via extensions, Claude Code via user-scoped or workspace `.mcp.json` config.
+- **Use `gh` CLI for PRs.** If `gh` is installed and authenticated on the machine, the agent can create PRs directly.
 - **Use Linear's GitHub integration for linking.** Including `Resolves AIE-123` in a PR body auto-links it in Linear.
 - **Handle retries.** Use `{% if attempt %}` to give different instructions on retry.
 
@@ -353,7 +441,6 @@ make run
 ### Project structure
 
 ```
-go/
 ├── cmd/symphony/main.go          # CLI entrypoint
 ├── internal/
 │   ├── config/                   # Typed config + defaults + validation
@@ -361,7 +448,12 @@ go/
 │   ├── tracker/                  # Linear GraphQL client
 │   ├── orchestrator/             # Poll loop, dispatch, reconcile, retry
 │   ├── workspace/                # Directory lifecycle + hooks + safety
-│   ├── agent/                    # ACP client + runner + events
+│   ├── agent/                    # Backend runners + protocol clients
+│   │   ├── runner.go             # AgentLauncher interface + factory
+│   │   ├── acp.go                # Gemini ACP client (JSON-RPC over stdio)
+│   │   ├── claude_runner.go      # Claude Code runner (NDJSON streaming)
+│   │   ├── ndjson.go             # NDJSON line-accumulator parser
+│   │   └── events.go             # Event types for orchestrator
 │   ├── prompt/                   # Liquid template rendering
 │   ├── server/                   # HTTP dashboard + JSON API
 │   └── logging/                  # slog JSON setup

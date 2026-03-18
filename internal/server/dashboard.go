@@ -33,14 +33,14 @@ tr:nth-child(even) { background: #0f3460; }
 
 	b.WriteString(fmt.Sprintf("<h1>Symphony Go</h1>\n"))
 	b.WriteString(fmt.Sprintf("<p>Generated: %s | Model: <strong>%s</strong> | Project: <strong>%s</strong></p>\n",
-		snapshot.GeneratedAt.Format(time.RFC3339), snapshot.Config.GeminiModel, snapshot.Config.ProjectSlug))
+		snapshot.GeneratedAt.Format(time.RFC3339), snapshot.Config.AgentModel, snapshot.Config.ProjectSlug))
 
 	// Metrics
 	b.WriteString(`<div>`)
 	b.WriteString(fmt.Sprintf(`<div class="metric"><div class="value">%d</div><div class="label">Running</div></div>`, snapshot.Counts.Running))
 	b.WriteString(fmt.Sprintf(`<div class="metric"><div class="value">%d</div><div class="label">Retrying</div></div>`, snapshot.Counts.Retrying))
-	b.WriteString(fmt.Sprintf(`<div class="metric"><div class="value">%d</div><div class="label">Total Tokens</div></div>`, snapshot.GeminiTotals.TotalTokens))
-	b.WriteString(fmt.Sprintf(`<div class="metric"><div class="value">%.0fs</div><div class="label">Runtime</div></div>`, snapshot.GeminiTotals.SecondsRunning))
+	b.WriteString(fmt.Sprintf(`<div class="metric"><div class="value">%d</div><div class="label">Total Tokens</div></div>`, snapshot.AgentTotals.TotalTokens))
+	b.WriteString(fmt.Sprintf(`<div class="metric"><div class="value">%.0fs</div><div class="label">Runtime</div></div>`, snapshot.AgentTotals.SecondsRunning))
 	b.WriteString(`</div>`)
 
 	// Running

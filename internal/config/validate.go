@@ -32,9 +32,18 @@ func ValidateDispatchConfig(cfg *Config) error {
 		errs = append(errs, "tracker.project_slug is required when tracker.kind is \"linear\"")
 	}
 
-	// gemini.command must be non-empty
-	if cfg.Gemini.Command == "" {
-		errs = append(errs, "gemini.command is required (must be non-empty)")
+	// backend-specific validation
+	switch cfg.Backend {
+	case "", "gemini":
+		if cfg.Gemini.Command == "" {
+			errs = append(errs, "gemini.command is required (must be non-empty)")
+		}
+	case "claude":
+		if cfg.Claude.Command == "" {
+			errs = append(errs, "claude.command is required when backend is \"claude\"")
+		}
+	default:
+		errs = append(errs, fmt.Sprintf("unsupported backend: %q", cfg.Backend))
 	}
 
 	if len(errs) > 0 {

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -163,5 +164,131 @@ func TestParseConfig_GeminiCommandPreservedAsShellString(t *testing.T) {
 	expected := "gemini --experimental-acp --model gemini-3.1-pro-preview"
 	if cfg.Gemini.Command != expected {
 		t.Errorf("expected command preserved as shell string %q, got %q", expected, cfg.Gemini.Command)
+	}
+}
+
+func TestParseConfig_BackendDefault(t *testing.T) {
+	cfg, err := ParseConfig(map[string]any{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Backend != "gemini" {
+		t.Errorf("expected default backend %q, got %q", "gemini", cfg.Backend)
+	}
+}
+
+func TestParseConfig_BackendClaude(t *testing.T) {
+	raw := map[string]any{
+		"backend": "claude",
+	}
+	cfg, err := ParseConfig(raw)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Backend != "claude" {
+		t.Errorf("expected backend %q, got %q", "claude", cfg.Backend)
+	}
+}
+
+func TestParseConfig_ClaudeDefaults(t *testing.T) {
+	cfg, err := ParseConfig(map[string]any{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	defaults := DefaultConfig()
+
+	if cfg.Claude.Command != defaults.Claude.Command {
+		t.Errorf("expected default claude command %q, got %q", defaults.Claude.Command, cfg.Claude.Command)
+	}
+	if cfg.Claude.Model != defaults.Claude.Model {
+		t.Errorf("expected default claude model %q, got %q", defaults.Claude.Model, cfg.Claude.Model)
+	}
+	if cfg.Claude.PermissionMode != defaults.Claude.PermissionMode {
+		t.Errorf("expected default permission_mode %q, got %q", defaults.Claude.PermissionMode, cfg.Claude.PermissionMode)
+	}
+	if len(cfg.Claude.AllowedTools) != len(defaults.Claude.AllowedTools) {
+		t.Errorf("expected %d allowed_tools, got %d", len(defaults.Claude.AllowedTools), len(cfg.Claude.AllowedTools))
+	}
+	if cfg.Claude.MaxTurns != defaults.Claude.MaxTurns {
+		t.Errorf("expected default max_turns %d, got %d", defaults.Claude.MaxTurns, cfg.Claude.MaxTurns)
+	}
+	if cfg.Claude.TurnTimeoutMs != defaults.Claude.TurnTimeoutMs {
+		t.Errorf("expected default turn_timeout_ms %d, got %d", defaults.Claude.TurnTimeoutMs, cfg.Claude.TurnTimeoutMs)
+	}
+	if cfg.Claude.StallTimeoutMs != defaults.Claude.StallTimeoutMs {
+		t.Errorf("expected default stall_timeout_ms %d, got %d", defaults.Claude.StallTimeoutMs, cfg.Claude.StallTimeoutMs)
+	}
+}
+
+func TestParseConfig_ClaudeOverrides(t *testing.T) {
+	raw := map[string]any{
+		"claude": map[string]any{
+			"command": "claude --custom",
+			"model":   "claude-opus-4-6",
+		},
+	}
+	cfg, err := ParseConfig(raw)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Claude.Command != "claude --custom" {
+		t.Errorf("expected overridden command %q, got %q", "claude --custom", cfg.Claude.Command)
+	}
+	if cfg.Claude.Model != "claude-opus-4-6" {
+		t.Errorf("expected overridden model %q, got %q", "claude-opus-4-6", cfg.Claude.Model)
+	}
+	// Defaults preserved for unset fields
+	defaults := DefaultConfig()
+	if cfg.Claude.PermissionMode != defaults.Claude.PermissionMode {
+		t.Errorf("expected default permission_mode preserved, got %q", cfg.Claude.PermissionMode)
+	}
+	if cfg.Claude.MaxTurns != defaults.Claude.MaxTurns {
+		t.Errorf("expected default max_turns preserved, got %d", cfg.Claude.MaxTurns)
+	}
+}
+
+func TestParseConfig_ClaudeCodeAlias(t *testing.T) {
+	raw := map[string]any{
+		"claude_code": map[string]any{
+			"command": "claude-code-bin",
+			"model":   "claude-sonnet-4-6",
+		},
+	}
+	cfg, err := ParseConfig(raw)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Claude.Command != "claude-code-bin" {
+		t.Errorf("expected claude_code alias to claude.command, got %q", cfg.Claude.Command)
+	}
+	if cfg.Claude.Model != "claude-sonnet-4-6" {
+		t.Errorf("expected claude_code alias to claude.model, got %q", cfg.Claude.Model)
+	}
+}
+
+func TestValidateDispatchConfig_InvalidBackend(t *testing.T) {
+	cfg := validConfig()
+	cfg.Backend = "unknown"
+
+	err := ValidateDispatchConfig(cfg)
+	if err == nil {
+		t.Fatal("expected error for invalid backend")
+	}
+	if !strings.Contains(err.Error(), "unsupported backend") {
+		t.Errorf("expected 'unsupported backend' error, got: %v", err)
+	}
+}
+
+func TestValidateDispatchConfig_ClaudeEmptyCommand(t *testing.T) {
+	cfg := validConfig()
+	cfg.Backend = "claude"
+	cfg.Claude.Command = ""
+
+	err := ValidateDispatchConfig(cfg)
+	if err == nil {
+		t.Fatal("expected error for empty claude.command")
+	}
+	if !strings.Contains(err.Error(), "claude.command") {
+		t.Errorf("expected error about claude.command, got: %v", err)
 	}
 }

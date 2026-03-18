@@ -23,11 +23,15 @@ func ReconcileRunningIssues(
 }
 
 func reconcileStalls(state *State, cfg *config.Config, retryFn func(string, string, string, int)) {
-	if cfg.Gemini.StallTimeoutMs <= 0 {
+	stallTimeoutMs := cfg.Gemini.StallTimeoutMs
+	if cfg.Backend == "claude" {
+		stallTimeoutMs = cfg.Claude.StallTimeoutMs
+	}
+	if stallTimeoutMs <= 0 {
 		return
 	}
 
-	stallTimeout := time.Duration(cfg.Gemini.StallTimeoutMs) * time.Millisecond
+	stallTimeout := time.Duration(stallTimeoutMs) * time.Millisecond
 	now := time.Now()
 
 	var stalled []string
@@ -142,7 +146,7 @@ func removeRunning(state *State, issueID string) {
 
 	// Add runtime seconds
 	elapsed := time.Since(entry.StartedAt).Seconds()
-	state.GeminiTotals.SecondsRunning += elapsed
+	state.AgentTotals.SecondsRunning += elapsed
 
 	delete(state.Running, issueID)
 }

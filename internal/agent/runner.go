@@ -36,6 +36,7 @@ type RunParams struct {
 	Attempt         *int
 	Workflow        *workflow.WorkflowDefinition
 	GeminiCfg       *config.GeminiConfig
+	ClaudeCfg       *config.ClaudeConfig
 	AgentCfg        *config.AgentConfig
 	ActiveStates    []string
 	WorkspaceMgr    *workspace.Manager
@@ -55,6 +56,18 @@ type GeminiRunner struct{}
 // NewGeminiRunner creates a new GeminiRunner.
 func NewGeminiRunner() *GeminiRunner {
 	return &GeminiRunner{}
+}
+
+// NewLauncher returns an AgentLauncher for the given backend name.
+func NewLauncher(backend string) (AgentLauncher, error) {
+	switch backend {
+	case "", "gemini":
+		return NewGeminiRunner(), nil
+	case "claude":
+		return NewClaudeRunner(), nil
+	default:
+		return nil, fmt.Errorf("unsupported backend: %q", backend)
+	}
 }
 
 // Launch runs a full agent attempt: workspace → prompt → ACP session → turn loop.
