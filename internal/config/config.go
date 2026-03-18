@@ -25,6 +25,7 @@ type TrackerConfig struct {
 	Endpoint       string   `yaml:"endpoint"        json:"endpoint"`
 	APIKey         string   `yaml:"api_key"         json:"api_key"`
 	ProjectSlug    string   `yaml:"project_slug"    json:"project_slug"`
+	Email          string   `yaml:"email"           json:"email"`
 	ActiveStates   []string `yaml:"active_states"   json:"active_states"`
 	TerminalStates []string `yaml:"terminal_states" json:"terminal_states"`
 }

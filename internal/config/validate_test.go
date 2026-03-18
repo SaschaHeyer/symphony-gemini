@@ -34,7 +34,7 @@ func TestValidateDispatchConfig_MissingTrackerKind(t *testing.T) {
 
 func TestValidateDispatchConfig_UnsupportedTrackerKind(t *testing.T) {
 	cfg := validConfig()
-	cfg.Tracker.Kind = "jira"
+	cfg.Tracker.Kind = "trello"
 
 	err := ValidateDispatchConfig(cfg)
 	if err == nil {
@@ -99,5 +99,60 @@ func TestValidateDispatchConfig_MultipleErrors(t *testing.T) {
 	}
 	if len(ve.Errors) < 2 {
 		t.Errorf("expected multiple validation errors, got %d: %v", len(ve.Errors), ve.Errors)
+	}
+}
+
+func validJiraConfig() *Config {
+	cfg := DefaultConfig()
+	cfg.Tracker.Kind = "jira"
+	cfg.Tracker.Endpoint = "https://mycompany.atlassian.net"
+	cfg.Tracker.APIKey = "jira_test_token"
+	cfg.Tracker.ProjectSlug = "PROJ"
+	cfg.Tracker.Email = "user@example.com"
+	return &cfg
+}
+
+func TestValidateDispatchConfig_JiraValid(t *testing.T) {
+	if err := ValidateDispatchConfig(validJiraConfig()); err != nil {
+		t.Errorf("expected no error, got %v", err)
+	}
+}
+
+func TestValidateDispatchConfig_JiraMissingEmail(t *testing.T) {
+	cfg := validJiraConfig()
+	cfg.Tracker.Email = ""
+
+	err := ValidateDispatchConfig(cfg)
+	if err == nil {
+		t.Fatal("expected error for missing tracker.email")
+	}
+	if !strings.Contains(err.Error(), "tracker.email") {
+		t.Errorf("expected error about tracker.email, got: %v", err)
+	}
+}
+
+func TestValidateDispatchConfig_JiraMissingEndpoint(t *testing.T) {
+	cfg := validJiraConfig()
+	cfg.Tracker.Endpoint = ""
+
+	err := ValidateDispatchConfig(cfg)
+	if err == nil {
+		t.Fatal("expected error for missing tracker.endpoint")
+	}
+	if !strings.Contains(err.Error(), "tracker.endpoint") {
+		t.Errorf("expected error about tracker.endpoint, got: %v", err)
+	}
+}
+
+func TestValidateDispatchConfig_JiraMissingProjectSlug(t *testing.T) {
+	cfg := validJiraConfig()
+	cfg.Tracker.ProjectSlug = ""
+
+	err := ValidateDispatchConfig(cfg)
+	if err == nil {
+		t.Fatal("expected error for missing tracker.project_slug")
+	}
+	if !strings.Contains(err.Error(), "tracker.project_slug") {
+		t.Errorf("expected error about tracker.project_slug, got: %v", err)
 	}
 }

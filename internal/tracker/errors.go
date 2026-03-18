@@ -12,6 +12,14 @@ const (
 	ErrLinearGraphQLErrors     = "linear_graphql_errors"
 	ErrLinearUnknownPayload    = "linear_unknown_payload"
 	ErrLinearMissingEndCursor  = "linear_missing_end_cursor"
+
+	ErrJiraAuthFailed     = "jira_auth_failed"
+	ErrJiraForbidden      = "jira_forbidden"
+	ErrJiraNotFound       = "jira_not_found"
+	ErrJiraBadRequest     = "jira_bad_request"
+	ErrJiraAPIStatus      = "jira_api_status"
+	ErrJiraAPIRequest     = "jira_api_request"
+	ErrJiraUnknownPayload = "jira_unknown_payload"
 )
 
 // TrackerError is a typed error for tracker operations.

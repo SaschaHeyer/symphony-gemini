@@ -23,13 +23,25 @@ func ValidateDispatchConfig(cfg *Config) error {
 	// tracker.kind must be present and supported
 	if cfg.Tracker.Kind == "" {
 		errs = append(errs, "tracker.kind is required")
-	} else if cfg.Tracker.Kind != "linear" {
-		errs = append(errs, fmt.Sprintf("tracker.kind %q is not supported (only \"linear\")", cfg.Tracker.Kind))
-	}
-
-	// tracker.project_slug must be present for linear
-	if cfg.Tracker.Kind == "linear" && cfg.Tracker.ProjectSlug == "" {
-		errs = append(errs, "tracker.project_slug is required when tracker.kind is \"linear\"")
+	} else {
+		switch cfg.Tracker.Kind {
+		case "linear":
+			if cfg.Tracker.ProjectSlug == "" {
+				errs = append(errs, `tracker.project_slug is required when tracker.kind is "linear"`)
+			}
+		case "jira":
+			if cfg.Tracker.Endpoint == "" {
+				errs = append(errs, `tracker.endpoint is required when tracker.kind is "jira"`)
+			}
+			if cfg.Tracker.ProjectSlug == "" {
+				errs = append(errs, `tracker.project_slug is required when tracker.kind is "jira"`)
+			}
+			if cfg.Tracker.Email == "" {
+				errs = append(errs, `tracker.email is required when tracker.kind is "jira"`)
+			}
+		default:
+			errs = append(errs, fmt.Sprintf("tracker.kind %q is not supported", cfg.Tracker.Kind))
+		}
 	}
 
 	// backend-specific validation

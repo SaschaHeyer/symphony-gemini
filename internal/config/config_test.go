@@ -266,6 +266,33 @@ func TestParseConfig_ClaudeCodeAlias(t *testing.T) {
 	}
 }
 
+func TestParseConfig_TrackerEmail(t *testing.T) {
+	raw := map[string]any{
+		"tracker": map[string]any{
+			"kind":         "jira",
+			"endpoint":     "https://mycompany.atlassian.net",
+			"api_key":      "jira-token",
+			"project_slug": "PROJ",
+			"email":        "user@example.com",
+		},
+	}
+
+	cfg, err := ParseConfig(raw)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if cfg.Tracker.Email != "user@example.com" {
+		t.Errorf("expected email %q, got %q", "user@example.com", cfg.Tracker.Email)
+	}
+	if cfg.Tracker.Kind != "jira" {
+		t.Errorf("expected kind %q, got %q", "jira", cfg.Tracker.Kind)
+	}
+	if cfg.Tracker.Endpoint != "https://mycompany.atlassian.net" {
+		t.Errorf("expected endpoint %q, got %q", "https://mycompany.atlassian.net", cfg.Tracker.Endpoint)
+	}
+}
+
 func TestValidateDispatchConfig_InvalidBackend(t *testing.T) {
 	cfg := validConfig()
 	cfg.Backend = "unknown"

@@ -1,8 +1,8 @@
 # Symphony Go
 
-A Go implementation of the [Symphony specification](../SPEC.md) — a long-running automation service that reads work from Linear, creates isolated workspaces, and runs AI coding agents for each issue.
+A Go implementation of the [Symphony specification](../SPEC.md) — a long-running automation service that reads work from issue trackers, creates isolated workspaces, and runs AI coding agents for each issue.
 
-Symphony supports two agent backends: **Gemini CLI** and **Claude Code**. You choose which backend to use per workflow.
+Symphony supports two agent backends (**Gemini CLI** and **Claude Code**) and two issue trackers (**Linear** and **Jira Cloud**). Mix and match per workflow.
 
 ## Architecture
 
@@ -10,13 +10,17 @@ Symphony supports two agent backends: **Gemini CLI** and **Claude Code**. You ch
 WORKFLOW.md (config + prompt)
       │
       ▼
-┌─────────────┐     ┌──────────────┐     ┌────────────────────┐
-│ Orchestrator │────▶│ Linear API   │     │ Gemini CLI (ACP)   │
-│              │     │ (GraphQL)    │     │ JSON-RPC over stdio│
-│ poll/dispatch│     └──────────────┘     └────────────────────┘
-│ reconcile   │                           ┌────────────────────┐
-│ retry       │──── workspace ── prompt ─▶│ Claude Code (NDJSON)│
-└─────────────┘                           │ CLI per turn       │
+                                          ┌────────────────────┐
+┌─────────────┐     ┌──────────────┐     │ Gemini CLI (ACP)   │
+│ Orchestrator │────▶│ Linear API   │     │ JSON-RPC over stdio│
+│              │     │ (GraphQL)    │     └────────────────────┘
+│ poll/dispatch│     ├──────────────┤              ▲
+│ reconcile   │────▶│ Jira Cloud   │              │
+│ retry       │     │ (REST v3)    │     workspace + prompt
+└─────────────┘     └──────────────┘              │
+                                          ┌───────┴────────────┐
+                                          │ Claude Code (NDJSON)│
+                                          │ CLI per turn       │
                                           └────────────────────┘
 ```
 
@@ -59,17 +63,119 @@ claude mcp add -s user --transport http linear-server https://mcp.linear.app/mcp
 
 This makes the Linear MCP server available in all workspaces. Alternatively, write a `.mcp.json` file in the workspace via the `after_create` hook for a self-contained setup.
 
+## Issue Trackers
+
+Symphony supports **Linear** and **Jira Cloud** as issue trackers. Set `tracker.kind` in your WORKFLOW.md.
+
+### Why does Symphony need an API key?
+
+Symphony has two separate connections to your tracker:
+
+1. **Symphony's orchestrator (polling)** — The orchestrator polls the tracker API directly every 30 seconds to discover new issues, check which state running issues are in, and decide what to dispatch. This requires an **API key** because the orchestrator makes direct HTTP calls to the tracker's API.
+
+2. **The agent (MCP tools)** — During its work session, the agent uses MCP tools to read/write issues (transitions, comments, etc.). The agent authenticates to the MCP server separately — this is configured once via the MCP setup commands and doesn't require the API key in WORKFLOW.md.
+
+**Both are required.** The API key powers the orchestrator's polling loop. The MCP tools power the agent's interactions.
+
+> **Recommendation:** Set your API keys as environment variables rather than hardcoding them in WORKFLOW.md. This keeps secrets out of version control and makes it easy to share workflow files across a team.
+
+| | Linear | Jira Cloud |
+|---|---|---|
+| **Config key** | `tracker.kind: linear` | `tracker.kind: jira` |
+| **API** | GraphQL | REST API v3 |
+| **Auth** | API key | API token + email |
+| **Project filter** | `tracker.project_slug` (slug ID from URL) | `tracker.project_slug` (Jira project key, e.g., `PROJ`) |
+| **Endpoint** | Default: `https://api.linear.app/graphql` | Required (e.g., `https://mycompany.atlassian.net`) |
+| **Default active states** | `To Do`, `In Progress` | `To Do`, `In Progress` |
+| **Default terminal states** | `Closed`, `Cancelled`, `Canceled`, `Duplicate`, `Done` | `Done` |
+
+### Linear Setup
+
+1. Create an API key at **Linear Settings > API > Personal API keys**
+2. Find your project slug from the URL: `https://linear.app/yourteam/project/my-project-abc123` → `my-project-abc123`
+3. Set the environment variable (add to your `~/.zshrc` or `~/.bashrc` to persist):
+   ```bash
+   export LINEAR_API_KEY="lin_api_..."
+   ```
+4. Add MCP so the agent can interact with Linear during work:
+   - **Gemini:** `gemini extensions install @google/mcp-linear`
+   - **Claude Code:** `claude mcp add -s user --transport http linear-server https://mcp.linear.app/mcp`
+5. In your WORKFLOW.md, reference the env var:
+   ```yaml
+   tracker:
+     kind: linear
+     api_key: $LINEAR_API_KEY
+     project_slug: my-project-abc123
+   ```
+
+### Jira Setup
+
+1. Generate an API token at https://id.atlassian.com/manage-profile/security/api-tokens
+2. Find your project key from Jira (e.g., `PROJ` from issue keys like `PROJ-123`)
+3. Set environment variables (add to your `~/.zshrc` or `~/.bashrc` to persist):
+   ```bash
+   export JIRA_API_TOKEN="your-api-token"
+   export JIRA_EMAIL="your-email@company.com"
+   export JIRA_ENDPOINT="https://mycompany.atlassian.net"
+   ```
+4. Add MCP so the agent can interact with Jira during work:
+   - **Claude Code:** `claude mcp add -s user --transport http jira-server https://mcp.atlassian.com/v1/sse`
+   - **Gemini:** configure a Jira MCP server in `~/.gemini/settings.json`
+5. In your WORKFLOW.md, reference the env vars:
+   ```yaml
+   tracker:
+     kind: jira
+     endpoint: $JIRA_ENDPOINT
+     api_key: $JIRA_API_TOKEN
+     email: $JIRA_EMAIL
+     project_slug: PROJ
+   ```
+
+### Tracker Configuration Reference
+
+```yaml
+tracker:
+  kind: jira                        # required: "linear" or "jira"
+  endpoint: $JIRA_ENDPOINT          # required for Jira; has default for Linear
+  api_key: $JIRA_API_TOKEN          # required: API key/token (supports $VAR)
+  email: $JIRA_EMAIL                # required for Jira only (supports $VAR)
+  project_slug: PROJ                # required: Linear slug ID or Jira project key
+  active_states:                    # states that trigger agent work
+    - To Do
+    - In Progress
+  terminal_states:                  # states that stop agents and clean workspaces
+    - Done
+```
+
+| Field | Required | Description |
+|---|---|---|
+| `kind` | Always | `"linear"` or `"jira"` |
+| `endpoint` | Jira only | Jira Cloud base URL. Linear has a built-in default. |
+| `api_key` | Always | API key (Linear) or API token (Jira). Use `$VAR` to reference env vars. Falls back to `LINEAR_API_KEY` or `JIRA_API_TOKEN` env vars. |
+| `email` | Jira only | Atlassian account email for Basic Auth. Use `$VAR`. Falls back to `JIRA_EMAIL`. |
+| `project_slug` | Always | Linear project slug ID or Jira project key (e.g., `PROJ`). |
+| `active_states` | No | States that trigger agent work. Must match tracker exactly (case-sensitive). |
+| `terminal_states` | No | States that stop agents and trigger workspace cleanup. |
+
+**State names must match your tracker exactly** (case-sensitive). Check your Linear workflow states or Jira project board settings.
+
+**Jira state tips:**
+- Jira status names often include spaces: `"To Do"`, `"In Progress"`, `"In Review"`
+- Custom workflows may have different names — check your project's board columns
+- Include all "done" statuses in `terminal_states` so Symphony cleans up finished work
+
 ## Workflows & Customization
 
 Symphony is driven by `WORKFLOW.md` files. You can create different workflow files for different strategies and backends.
 
 ### Included Workflows
 
-| Workflow | File | Backend | Strategy | Best For |
+| Workflow | File | Backend | Tracker | Strategy |
 |---|---|---|---|---|
-| **Autonomous** | `WORKFLOW.md` | Gemini | Full automation | Rapid prototyping, bug fixes, trusted tasks |
-| **Planning First** | `WORKFLOW-PLAN.md` | Gemini | Human-in-the-loop | Complex features, production changes |
-| **Planning First (Claude)** | `WORKFLOW-PLAN-CLAUDE.md` | Claude Code | Human-in-the-loop | Same as above, using Claude Code as the agent |
+| **Autonomous** | `WORKFLOW.md` | Gemini | Linear | Full automation |
+| **Planning First** | `WORKFLOW-PLAN.md` | Gemini | Linear | Human-in-the-loop |
+| **Planning First (Claude)** | `WORKFLOW-PLAN-CLAUDE.md` | Claude Code | Linear | Human-in-the-loop |
+| **Planning First (Jira)** | `WORKFLOW-PLAN-JIRA.md` | Claude Code | Jira | Human-in-the-loop |
 
 #### Strategy Comparison
 
@@ -104,10 +210,11 @@ To use a custom workflow:
    - **Gemini CLI** — `npm install -g @google/gemini-cli && gemini auth login`
    - **Claude Code** — `npm install -g @anthropic-ai/claude-code` (requires Anthropic API key or Claude subscription)
 
-3. **Linear project slug** — from your project URL:
-   `https://linear.app/yourteam/project/my-project-abc123` → slug is `my-project-abc123`
+3. **An issue tracker** — at least one of:
+   - **Linear** — API key from Linear settings. Project slug from URL: `my-project-abc123`
+   - **Jira Cloud** — API token + email. Project key (e.g., `PROJ`)
 
-4. **Linear MCP** (for agent access to Linear) — see [Agent Backends](#agent-backends) for backend-specific setup
+4. **Tracker MCP** (for agent access to the tracker) — see [Issue Trackers](#issue-trackers) for setup
 
 ## Build
 
@@ -165,9 +272,10 @@ You are working on issue {{ issue.identifier }}: {{ issue.title }}.
 backend: gemini                           # "gemini" (default) or "claude"
 
 tracker:
-  kind: linear                          # required, only "linear" supported
-  project_slug: my-project              # required for linear
-  endpoint: https://api.linear.app/graphql  # default
+  kind: linear                          # required: "linear" or "jira"
+  project_slug: my-project              # required (Linear slug or Jira project key)
+  endpoint: https://api.linear.app/graphql  # default for Linear; required for Jira
+  email: $JIRA_EMAIL                    # required for Jira (Basic Auth); ignored for Linear
   active_states:                        # default: ["Todo", "In Progress"]
     - Todo
     - In Progress
@@ -250,13 +358,13 @@ The prompt body is rendered with [Liquid](https://shopify.github.io/liquid/) syn
 
 | Variable | Type | Description |
 |---|---|---|
-| `issue.id` | string | Linear internal ID |
-| `issue.identifier` | string | Human-readable key (e.g., `MT-123`) |
+| `issue.id` | string | Tracker ID (Linear UUID or Jira key) |
+| `issue.identifier` | string | Human-readable key (e.g., `MT-123` or `PROJ-456`) |
 | `issue.title` | string | Issue title |
 | `issue.description` | string | Issue description (empty if none) |
 | `issue.state` | string | Current tracker state name |
 | `issue.priority` | int or nil | Priority (1=urgent, 4=low, nil=none) |
-| `issue.url` | string | Linear issue URL |
+| `issue.url` | string | Issue URL (Linear or Jira) |
 | `issue.labels` | list of strings | Lowercase label names |
 | `issue.branch_name` | string | Suggested branch name |
 | `issue.blocked_by` | list of objects | Blocking issues (each has `.id`, `.identifier`, `.state`) |
@@ -266,11 +374,27 @@ The prompt body is rendered with [Liquid](https://shopify.github.io/liquid/) syn
 
 ### Environment variables
 
-| Variable | Purpose |
-|---|---|
-| `LINEAR_API_KEY` | (Optional) Used by the backend for polling if `tracker.api_key` is not specified. |
+Symphony resolves `$VAR_NAME` references in config fields at startup. You can also rely on automatic fallbacks:
 
-Use `$VAR_NAME` syntax in path fields to reference environment variables.
+| Variable | Used by | Purpose |
+|---|---|---|
+| `LINEAR_API_KEY` | Linear tracker | Auto-fallback for `tracker.api_key` when kind is `linear` |
+| `JIRA_API_TOKEN` | Jira tracker | Auto-fallback for `tracker.api_key` when kind is `jira` |
+| `JIRA_EMAIL` | Jira tracker | Auto-fallback for `tracker.email` when kind is `jira` |
+
+**Best practice:** Add these to your shell profile (`~/.zshrc` or `~/.bashrc`) so they persist across terminal sessions:
+
+```bash
+# Linear
+export LINEAR_API_KEY="lin_api_..."
+
+# Jira
+export JIRA_API_TOKEN="your-token"
+export JIRA_EMAIL="you@company.com"
+export JIRA_ENDPOINT="https://mycompany.atlassian.net"
+```
+
+Then reference them in WORKFLOW.md with `$VAR` syntax: `api_key: $LINEAR_API_KEY`. Or omit the field entirely and let the auto-fallback pick up the env var.
 
 ## Run
 
@@ -308,7 +432,7 @@ The server binds to `127.0.0.1` (localhost only).
 
 ## How it works
 
-1. **Poll** — Every `polling.interval_ms`, fetch candidate issues from Linear
+1. **Poll** — Every `polling.interval_ms`, fetch candidate issues from the configured tracker (Linear or Jira)
 2. **Dispatch** — Sort by priority, check eligibility (concurrency, blockers), launch workers
 3. **Worker** — Create workspace → run hooks → launch agent (Gemini or Claude) → multi-turn session
 4. **Reconcile** — Each tick, check tracker state for running issues (stop on terminal, update on active)
@@ -374,8 +498,30 @@ The same prompt works with both Gemini and Claude Code. The agents have differen
 1. **What it's working on** — use template variables like `{{ issue.identifier }}` and `{{ issue.title }}`
 2. **Where the code is** — mention the repo so the agent understands the context
 3. **What steps to follow** — be explicit about branching, committing, pushing, PR creation
-4. **What tools to use** — both backends support Linear MCP tools and shell commands
+4. **How to interact with the tracker** — tell the agent which MCP tools to use for state transitions and comments
 5. **What to do when done** — move issue to review, create a PR, etc.
+
+### Tracker-specific prompt guidance
+
+The prompt template is the same regardless of tracker, but the agent instructions should reference the correct MCP tools:
+
+**Linear workflows:**
+```markdown
+Use the Linear MCP tools for ALL Linear operations:
+- `mcp_linear_update_issue` to transition states
+- `mcp_linear_create_comment` / `mcp_linear_update_comment` for workpad
+- `mcp_linear_list_comments` to find existing comments
+```
+
+**Jira workflows:**
+```markdown
+Use the Jira MCP tools for ALL Jira operations:
+- Use the Jira MCP to transition issue status (e.g., move to "In Progress")
+- Use the Jira MCP to add and update comments
+- Use the Jira MCP to read issue details and existing comments
+```
+
+The template variables (`{{ issue.identifier }}`, `{{ issue.title }}`, etc.) work identically for both trackers — Symphony normalizes the data before rendering.
 
 ### Example: Full workflow prompt
 
@@ -390,7 +536,7 @@ You are working in a checkout of https://github.com/your-org/your-repo.
 
 ## Instructions
 1. Make the code changes needed to resolve this issue.
-2. Use the Linear MCP tools to move the issue to `In Progress`.
+2. Move the issue to `In Progress` using the tracker MCP tools.
 3. Create a new branch: `git checkout -b {{ issue.identifier }}`
 4. Commit your changes with a clear message referencing the issue.
 5. Push the branch: `git push origin {{ issue.identifier }}`
@@ -399,7 +545,7 @@ You are working in a checkout of https://github.com/your-org/your-repo.
 7. Add the PR link to the issue as a comment.
 8. Move the issue to `Human Review`.
 
-When you are done, do NOT leave the issue in Todo.
+When you are done, do NOT leave the issue in an active state.
 The issue will be picked up again if it stays active.
 
 {% if attempt %}
@@ -410,10 +556,10 @@ This is retry attempt {{ attempt }}. Check previous work and continue.
 ### Key principles
 
 - **Be explicit.** The agent does what you tell it. If you don't say "create a PR", it won't.
-- **Use Linear MCP tools.** Both backends discover MCP tools automatically — Gemini via extensions, Claude Code via user-scoped or workspace `.mcp.json` config.
+- **Use tracker MCP tools.** Both backends discover MCP tools automatically — Gemini via extensions, Claude Code via user-scoped config. Tell the agent to use them for state transitions and comments.
 - **Use `gh` CLI for PRs.** If `gh` is installed and authenticated on the machine, the agent can create PRs directly.
-- **Use Linear's GitHub integration for linking.** Including `Resolves AIE-123` in a PR body auto-links it in Linear.
 - **Handle retries.** Use `{% if attempt %}` to give different instructions on retry.
+- **State names matter.** The states you reference in the prompt (e.g., "In Progress", "Human Review") must match your tracker's workflow exactly.
 
 ### Workspace location
 
@@ -445,7 +591,7 @@ make run
 ├── internal/
 │   ├── config/                   # Typed config + defaults + validation
 │   ├── workflow/                 # WORKFLOW.md parser + file watcher
-│   ├── tracker/                  # Linear GraphQL client
+│   ├── tracker/                  # Issue tracker clients (Linear + Jira)
 │   ├── orchestrator/             # Poll loop, dispatch, reconcile, retry
 │   ├── workspace/                # Directory lifecycle + hooks + safety
 │   ├── agent/                    # Backend runners + protocol clients

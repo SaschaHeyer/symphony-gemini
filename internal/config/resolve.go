@@ -16,9 +16,22 @@ func ResolveConfig(cfg *Config) (*Config, error) {
 	// Resolve $VAR in tracker.api_key
 	resolved.Tracker.APIKey = resolveEnvVar(resolved.Tracker.APIKey)
 
+	// Resolve $VAR in tracker.email
+	resolved.Tracker.Email = resolveEnvVar(resolved.Tracker.Email)
+
 	// Fallback to LINEAR_API_KEY env var if still empty
 	if resolved.Tracker.APIKey == "" {
 		resolved.Tracker.APIKey = os.Getenv("LINEAR_API_KEY")
+	}
+
+	// Jira-specific env fallbacks
+	if resolved.Tracker.Kind == "jira" {
+		if resolved.Tracker.Email == "" {
+			resolved.Tracker.Email = os.Getenv("JIRA_EMAIL")
+		}
+		if resolved.Tracker.APIKey == "" {
+			resolved.Tracker.APIKey = os.Getenv("JIRA_API_TOKEN")
+		}
 	}
 
 	// Resolve $VAR and ~ in workspace.root

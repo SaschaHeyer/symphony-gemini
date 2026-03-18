@@ -72,7 +72,11 @@ func main() {
 	}
 
 	// Create components
-	linearClient := tracker.NewLinearClient(resolved.Tracker.Endpoint, resolved.Tracker.APIKey)
+	trackerClient, err := tracker.NewTrackerClient(&resolved.Tracker)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: failed to create tracker client: %v\n", err)
+		os.Exit(1)
+	}
 	workspaceMgr := workspace.NewManager(resolved.Workspace.Root, &resolved.Hooks)
 
 	launcher, err := agent.NewLauncher(resolved.Backend)
@@ -81,7 +85,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	orch := orchestrator.New(resolved, wf, linearClient, launcher, workspaceMgr)
+	orch := orchestrator.New(resolved, wf, trackerClient, launcher, workspaceMgr)
 
 	// Start workflow watcher
 	stopWatch, err := workflow.WatchWorkflow(workflowPath, func(newWf *workflow.WorkflowDefinition, newCfg *config.Config) {
