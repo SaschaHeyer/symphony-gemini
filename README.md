@@ -6,23 +6,7 @@ Symphony supports two agent backends (**Gemini CLI** and **Claude Code**) and tw
 
 ## Architecture
 
-```
-WORKFLOW.md (config + prompt)
-      │
-      ▼
-                                          ┌────────────────────┐
-┌─────────────┐     ┌──────────────┐     │ Gemini CLI (ACP)   │
-│ Orchestrator │────▶│ Linear API   │     │ JSON-RPC over stdio│
-│              │     │ (GraphQL)    │     └────────────────────┘
-│ poll/dispatch│     ├──────────────┤              ▲
-│ reconcile   │────▶│ Jira Cloud   │              │
-│ retry       │     │ (REST v3)    │     workspace + prompt
-└─────────────┘     └──────────────┘              │
-                                          ┌───────┴────────────┐
-                                          │ Claude Code (NDJSON)│
-                                          │ CLI per turn       │
-                                          └────────────────────┘
-```
+![Symphony Go Architecture](symphony-go-architecture.png)
 
 ## Agent Backends
 
