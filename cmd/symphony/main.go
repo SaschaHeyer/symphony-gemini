@@ -10,6 +10,7 @@ import (
 	"syscall"
 
 	"github.com/symphony-go/symphony/internal/agent"
+	"github.com/symphony-go/symphony/internal/cmux"
 	"github.com/symphony-go/symphony/internal/config"
 	"github.com/symphony-go/symphony/internal/logging"
 	"github.com/symphony-go/symphony/internal/orchestrator"
@@ -79,13 +80,21 @@ func main() {
 	}
 	workspaceMgr := workspace.NewManager(resolved.Workspace.Root, &resolved.Hooks)
 
+	cmuxMgr := cmux.New(&resolved.Cmux)
+	if resolved.Cmux.Enabled {
+		if err := cmuxMgr.Init(); err != nil {
+			slog.Warn("cmux initialization failed, continuing without visibility", "error", err)
+		}
+	}
+	defer cmuxMgr.Shutdown()
+
 	launcher, err := agent.NewLauncher(resolved.Backend)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
 
-	orch := orchestrator.New(resolved, wf, trackerClient, launcher, workspaceMgr)
+	orch := orchestrator.New(resolved, wf, trackerClient, launcher, workspaceMgr, cmuxMgr)
 
 	// Start workflow watcher
 	stopWatch, err := workflow.WatchWorkflow(workflowPath, func(newWf *workflow.WorkflowDefinition, newCfg *config.Config) {
@@ -150,6 +159,7 @@ func main() {
 		"agent_model", agentModel,
 		"workspace_root", resolved.Workspace.Root,
 		"poll_interval_ms", resolved.Polling.IntervalMs,
+		"cmux_enabled", resolved.Cmux.Enabled,
 	)
 
 	// Run orchestrator (blocks until shutdown)

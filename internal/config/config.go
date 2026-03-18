@@ -18,6 +18,7 @@ type Config struct {
 	Gemini    GeminiConfig    `yaml:"gemini"    json:"gemini"`
 	Claude    ClaudeConfig    `yaml:"claude"    json:"claude"`
 	Server    ServerConfig    `yaml:"server"    json:"server"`
+	Cmux      CmuxConfig      `yaml:"cmux"      json:"cmux"`
 }
 
 type TrackerConfig struct {
@@ -73,6 +74,12 @@ type ClaudeConfig struct {
 
 type ServerConfig struct {
 	Port *int `yaml:"port" json:"port"`
+}
+
+type CmuxConfig struct {
+	Enabled       bool   `yaml:"enabled"        json:"enabled"`
+	WorkspaceName string `yaml:"workspace_name" json:"workspace_name"`
+	CloseDelayMs  int    `yaml:"close_delay_ms" json:"close_delay_ms"`
 }
 
 // ParseConfig takes the raw map from WORKFLOW.md front matter and produces a typed Config.
@@ -228,6 +235,18 @@ func applyDefaults(cfg *Config, defaults *Config, raw map[string]any) {
 		}
 		if _, ok := claudeRaw["stall_timeout_ms"]; !ok {
 			cfg.Claude.StallTimeoutMs = defaults.Claude.StallTimeoutMs
+		}
+	}
+
+	cmuxRaw, _ := raw["cmux"].(map[string]any)
+	if cmuxRaw == nil {
+		cfg.Cmux = defaults.Cmux
+	} else {
+		if _, ok := cmuxRaw["workspace_name"]; !ok {
+			cfg.Cmux.WorkspaceName = defaults.Cmux.WorkspaceName
+		}
+		if _, ok := cmuxRaw["close_delay_ms"]; !ok {
+			cfg.Cmux.CloseDelayMs = defaults.Cmux.CloseDelayMs
 		}
 	}
 

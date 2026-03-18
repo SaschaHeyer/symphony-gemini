@@ -31,6 +31,8 @@ hooks:
     fi
 server:
   port: 8080
+cmux:
+  enabled: true
 ---
 You are working on issue {{ issue.identifier }}: {{ issue.title }}.
 You are working in a checkout of https://github.com/SaschaHeyer/nfc-cards.

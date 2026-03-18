@@ -45,5 +45,10 @@ func DefaultConfig() Config {
 			TurnTimeoutMs:  600000,
 			StallTimeoutMs: 300000,
 		},
+		Cmux: CmuxConfig{
+			Enabled:       false,
+			WorkspaceName: "Symphony",
+			CloseDelayMs:  30000,
+		},
 	}
 }

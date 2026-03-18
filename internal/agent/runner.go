@@ -2,7 +2,9 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"strings"
 	"time"
@@ -41,7 +43,8 @@ type RunParams struct {
 	ActiveStates    []string
 	WorkspaceMgr    *workspace.Manager
 	WorkspaceRoot   string
-	ExtraEnv        []string // additional env vars for the agent subprocess
+	ExtraEnv        []string  // additional env vars for the agent subprocess
+	EventLogWriter  io.Writer // if non-nil, raw protocol events are written here
 	CheckIssueState func(ctx context.Context, issueID string) (string, error)
 }
 
@@ -112,6 +115,10 @@ func (r *GeminiRunner) Launch(ctx context.Context, params RunParams, eventCh cha
 		return fmt.Errorf("ACP initialize failed: %w", err)
 	}
 	logger.Info("ACP initialized", "agent", initResult.AgentInfo.Name, "protocol_version", initResult.ProtocolVersion)
+	if params.EventLogWriter != nil {
+		fmt.Fprintf(params.EventLogWriter, " %s%s%s  %s%s── ACP initialized — agent: %s, protocol: %d ──%s\n",
+			cGray, time.Now().Format("15:04:05"), cReset, cBold, cBlue, initResult.AgentInfo.Name, initResult.ProtocolVersion, cReset)
+	}
 
 	sessionID, err := client.SessionNew(ws.Path, readTimeout)
 	if err != nil {
@@ -119,6 +126,10 @@ func (r *GeminiRunner) Launch(ctx context.Context, params RunParams, eventCh cha
 	}
 	logger = logger.With("session_id", sessionID)
 	logger.Info("ACP session created")
+	if params.EventLogWriter != nil {
+		fmt.Fprintf(params.EventLogWriter, " %s%s%s  %s%s── Session created: %s ──%s\n",
+			cGray, time.Now().Format("15:04:05"), cReset, cBold, cBlue, sessionID, cReset)
+	}
 
 	// Emit session_started
 	eventCh <- OrchestratorEvent{
@@ -155,6 +166,8 @@ func (r *GeminiRunner) Launch(ctx context.Context, params RunParams, eventCh cha
 
 		// Update handler forwards events to orchestrator
 		updateHandler := func(update *SessionUpdateParams) {
+			logEvent(params.EventLogWriter, formatAcpUpdate(update))
+
 			evt := AgentEvent{
 				Type:      classifyUpdate(update),
 				Timestamp: time.Now().UTC(),
@@ -170,10 +183,17 @@ func (r *GeminiRunner) Launch(ctx context.Context, params RunParams, eventCh cha
 		}
 
 		// Run turn
+		if params.EventLogWriter != nil {
+			logAnnotation(params.EventLogWriter, fmt.Sprintf("Starting turn %d of %d", turnNumber, maxTurns))
+		}
+
 		result, err := client.SessionPrompt(sessionID, []ContentBlock{
 			{Type: "text", Text: turnPrompt},
 		}, turnTimeout, updateHandler)
 		if err != nil {
+			if params.EventLogWriter != nil {
+				logAnnotation(params.EventLogWriter, fmt.Sprintf("%sTurn %d failed%s — %s", cRed, turnNumber, cReset, err.Error()))
+			}
 			// Emit turn_failed
 			eventCh <- OrchestratorEvent{
 				Type:    EventAgentUpdate,
@@ -189,6 +209,9 @@ func (r *GeminiRunner) Launch(ctx context.Context, params RunParams, eventCh cha
 		}
 
 		logger.Info("turn completed", "turn", turnNumber, "stop_reason", result.StopReason)
+		if params.EventLogWriter != nil {
+			logAnnotation(params.EventLogWriter, fmt.Sprintf("%sTurn %d completed%s — %s", cGreen, turnNumber, cReset, result.StopReason))
+		}
 
 		// Emit turn_completed
 		eventCh <- OrchestratorEvent{
@@ -284,4 +307,113 @@ func summarizeUpdate(update *SessionUpdateParams) string {
 	default:
 		return update.Update.SessionUpdate
 	}
+}
+
+// ANSI color codes for terminal output.
+const (
+	cReset  = "\033[0m"
+	cDim    = "\033[2m"
+	cBold   = "\033[1m"
+	cRed    = "\033[31m"
+	cGreen  = "\033[32m"
+	cYellow = "\033[33m"
+	cBlue   = "\033[34m"
+	cCyan   = "\033[36m"
+	cGray   = "\033[90m"
+)
+
+// formatAcpUpdate returns a human-readable one-line summary of an ACP session update.
+func formatAcpUpdate(update *SessionUpdateParams) string {
+	u := update.Update
+	switch u.SessionUpdate {
+	case "tool_call":
+		status := colorStatus(u.Status)
+		return fmt.Sprintf("%sTOOL%s   %s  %s", cYellow, cReset, u.Title, status)
+	case "tool_call_update":
+		text := extractContentText(u.Content)
+		if u.Status == "failed" {
+			msg := u.Title
+			if text != "" {
+				msg = text
+			}
+			return fmt.Sprintf("%sFAIL%s   %s", cRed, cReset, truncate(msg, 120))
+		}
+		if text != "" {
+			return fmt.Sprintf("       %s%s%s", cDim, truncate(text, 120), cReset)
+		}
+		return fmt.Sprintf("       %s  %s", u.Title, colorStatus(u.Status))
+	case "message_chunk":
+		if u.Role == "thought" {
+			return fmt.Sprintf("%sTHINK%s  %s%s%s", cGray, cReset, cDim, truncate(u.Text, 150), cReset)
+		}
+		return fmt.Sprintf("%sAGENT%s  %s", cCyan, cReset, truncate(u.Text, 150))
+	case "agent_thought_chunk":
+		return fmt.Sprintf("%sTHINK%s  %s%s%s", cGray, cReset, cDim, truncate(u.Text, 150), cReset)
+	case "agent_message_chunk":
+		return fmt.Sprintf("%sAGENT%s  %s", cCyan, cReset, truncate(u.Text, 150))
+	default:
+		return fmt.Sprintf("%sEVENT%s  %s", cGray, cReset, u.SessionUpdate)
+	}
+}
+
+// logAnnotation writes a colored annotation line to the event log writer.
+func logAnnotation(w io.Writer, message string) {
+	if w == nil {
+		return
+	}
+	fmt.Fprintf(w, " %s%s%s  %s%s── %s ──%s\n",
+		cGray, time.Now().Format("15:04:05"), cReset, cBold, cBlue, message, cReset)
+}
+
+// logEvent writes a colored event line to the event log writer.
+func logEvent(w io.Writer, formatted string) {
+	if w == nil {
+		return
+	}
+	fmt.Fprintf(w, " %s%s%s  %s\n", cGray, time.Now().Format("15:04:05"), cReset, formatted)
+}
+
+func colorStatus(status string) string {
+	switch status {
+	case "completed":
+		return fmt.Sprintf("%s%s%s", cGreen, status, cReset)
+	case "failed":
+		return fmt.Sprintf("%s%s%s", cRed, status, cReset)
+	case "in_progress":
+		return fmt.Sprintf("%s%s%s", cYellow, status, cReset)
+	default:
+		return status
+	}
+}
+
+func truncate(s string, max int) string {
+	// Remove newlines for single-line display
+	s = strings.ReplaceAll(s, "\n", " ")
+	if len(s) > max {
+		return s[:max] + "..."
+	}
+	return s
+}
+
+func extractContentText(content []byte) string {
+	if len(content) == 0 {
+		return ""
+	}
+	// Content is a JSON array of content blocks; extract text simply
+	var blocks []struct {
+		Type    string `json:"type"`
+		Content struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		} `json:"content"`
+	}
+	if err := json.Unmarshal(content, &blocks); err != nil {
+		return ""
+	}
+	for _, b := range blocks {
+		if b.Content.Text != "" {
+			return b.Content.Text
+		}
+	}
+	return ""
 }

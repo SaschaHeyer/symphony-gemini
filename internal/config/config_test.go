@@ -293,6 +293,66 @@ func TestParseConfig_TrackerEmail(t *testing.T) {
 	}
 }
 
+func TestParseCmuxConfig(t *testing.T) {
+	raw := map[string]any{
+		"cmux": map[string]any{
+			"enabled":        true,
+			"workspace_name": "MyWorkspace",
+			"close_delay_ms": 5000,
+		},
+	}
+	cfg, err := ParseConfig(raw)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !cfg.Cmux.Enabled {
+		t.Error("expected cmux.enabled=true")
+	}
+	if cfg.Cmux.WorkspaceName != "MyWorkspace" {
+		t.Errorf("expected workspace_name %q, got %q", "MyWorkspace", cfg.Cmux.WorkspaceName)
+	}
+	if cfg.Cmux.CloseDelayMs != 5000 {
+		t.Errorf("expected close_delay_ms=5000, got %d", cfg.Cmux.CloseDelayMs)
+	}
+}
+
+func TestCmuxDefaults(t *testing.T) {
+	cfg, err := ParseConfig(map[string]any{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Cmux.Enabled {
+		t.Error("expected cmux.enabled=false by default")
+	}
+	if cfg.Cmux.WorkspaceName != "Symphony" {
+		t.Errorf("expected default workspace_name %q, got %q", "Symphony", cfg.Cmux.WorkspaceName)
+	}
+	if cfg.Cmux.CloseDelayMs != 30000 {
+		t.Errorf("expected default close_delay_ms=30000, got %d", cfg.Cmux.CloseDelayMs)
+	}
+}
+
+func TestCmuxDefaultsPartial(t *testing.T) {
+	raw := map[string]any{
+		"cmux": map[string]any{
+			"enabled": true,
+		},
+	}
+	cfg, err := ParseConfig(raw)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !cfg.Cmux.Enabled {
+		t.Error("expected cmux.enabled=true")
+	}
+	if cfg.Cmux.WorkspaceName != "Symphony" {
+		t.Errorf("expected default workspace_name preserved, got %q", cfg.Cmux.WorkspaceName)
+	}
+	if cfg.Cmux.CloseDelayMs != 30000 {
+		t.Errorf("expected default close_delay_ms preserved, got %d", cfg.Cmux.CloseDelayMs)
+	}
+}
+
 func TestValidateDispatchConfig_InvalidBackend(t *testing.T) {
 	cfg := validConfig()
 	cfg.Backend = "unknown"

@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/symphony-go/symphony/internal/agent"
+	"github.com/symphony-go/symphony/internal/cmux"
 	"github.com/symphony-go/symphony/internal/config"
 	"github.com/symphony-go/symphony/internal/orchestrator"
 	"github.com/symphony-go/symphony/internal/tracker"
@@ -34,7 +35,8 @@ func setupTestServer(t *testing.T) (*Server, string) {
 	mockTracker := &testMockTracker{}
 	mockLauncher := &testMockLauncher{}
 
-	orch := orchestrator.New(&cfg, wf, mockTracker, mockLauncher, workspaceMgr)
+	cmuxMgr := cmux.New(nil)
+	orch := orchestrator.New(&cfg, wf, mockTracker, mockLauncher, workspaceMgr, cmuxMgr)
 
 	srv := New(0, orch) // ephemeral port
 	if err := srv.Start(); err != nil {

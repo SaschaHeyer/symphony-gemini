@@ -73,6 +73,9 @@ func (r *ClaudeRunner) Launch(ctx context.Context, params RunParams, eventCh cha
 		}
 
 		logger.Info("starting claude turn", "turn", turnNumber, "max_turns", maxTurns)
+		if params.EventLogWriter != nil {
+			logAnnotation(params.EventLogWriter, fmt.Sprintf("Starting turn %d of %d", turnNumber, maxTurns))
+		}
 
 		// Build CLI args
 		args := buildClaudeArgs(params.ClaudeCfg, turnPrompt, sessionID, ws.Path)
@@ -91,6 +94,7 @@ func (r *ClaudeRunner) Launch(ctx context.Context, params RunParams, eventCh cha
 		turnResult, newSessionID, collectErr := collectClaudeOutput(
 			ctx, cmd, stdout, sessionID,
 			params.ClaudeCfg.TurnTimeoutMs, eventCh, params.Issue.ID,
+			params.EventLogWriter,
 		)
 
 		// Persist session ID if we got one
@@ -240,6 +244,7 @@ func collectClaudeOutput(
 	turnTimeoutMs int,
 	eventCh chan<- OrchestratorEvent,
 	issueID string,
+	eventLogWriter io.Writer,
 ) (lastResultType string, sessionID string, err error) {
 	sessionID = currentSessionID
 
@@ -272,6 +277,8 @@ func collectClaudeOutput(
 
 				events := parser.Feed(chunk)
 				for _, evt := range events {
+					logEvent(eventLogWriter, formatClaudeEvent(evt))
+
 					agentEvt := mapNdjsonToAgentEvent(evt, sessionID)
 					eventCh <- OrchestratorEvent{
 						Type:    EventAgentUpdate,
@@ -321,6 +328,10 @@ func collectClaudeOutput(
 	// Flush remaining parser data
 	remaining := parser.Flush()
 	for _, evt := range remaining {
+		if eventLogWriter != nil {
+			fmt.Fprintf(eventLogWriter, "[%s] %s\n", time.Now().Format("15:04:05"), formatClaudeEvent(evt))
+		}
+
 		agentEvt := mapNdjsonToAgentEvent(evt, sessionID)
 		eventCh <- OrchestratorEvent{
 			Type:    EventAgentUpdate,
@@ -508,4 +519,37 @@ func extractToolCallSummary(raw map[string]any) string {
 		return "tool_use"
 	}
 	return "tool_use: " + strings.Join(tools, ", ")
+}
+
+// formatClaudeEvent returns a human-readable one-line summary of a Claude NDJSON event.
+func formatClaudeEvent(evt NdjsonEvent) string {
+	switch {
+	case evt.Type == "system" && evt.Subtype == "init":
+		sid, _ := evt.Raw["session_id"].(string)
+		return fmt.Sprintf("%sSESSION%s  %s%s%s", cBlue, cReset, cDim, sid, cReset)
+
+	case evt.Type == "assistant" && hasToolUse(evt.Raw):
+		return fmt.Sprintf("%sTOOL%s   %s", cYellow, cReset, extractToolCallSummary(evt.Raw))
+
+	case evt.Type == "assistant":
+		text := extractAssistantText(evt.Raw)
+		return fmt.Sprintf("%sAGENT%s  %s", cCyan, cReset, truncate(text, 150))
+
+	case evt.Type == "result" && evt.Subtype == "success":
+		text := extractAssistantText(evt.Raw)
+		if text == "" {
+			text = "completed"
+		}
+		return fmt.Sprintf("%sDONE%s   %s", cGreen, cReset, truncate(text, 150))
+
+	case evt.Type == "result" && evt.Subtype == "error":
+		errMsg, _ := evt.Raw["error"].(string)
+		return fmt.Sprintf("%sERROR%s  %s", cRed, cReset, truncate(errMsg, 150))
+
+	case evt.Type == "result":
+		return fmt.Sprintf("%sRESULT%s %s", cGreen, cReset, evt.Subtype)
+
+	default:
+		return fmt.Sprintf("%sEVENT%s  %s/%s", cGray, cReset, evt.Type, evt.Subtype)
+	}
 }

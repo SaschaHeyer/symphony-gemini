@@ -416,7 +416,7 @@ echo '{"type":"result","subtype":"success","usage":{"input_tokens":100,"output_t
 	ctx := context.Background()
 
 	resultType, sessionID, collectErr := collectClaudeOutput(
-		ctx, cmd, stdout, "", 30000, eventCh, "issue-1",
+		ctx, cmd, stdout, "", 30000, eventCh, "issue-1", nil,
 	)
 
 	if collectErr != nil {
@@ -520,7 +520,7 @@ echo '{"type":"result","subtype":"success","usage":{"input_tokens":200,"output_t
 
 	eventCh := make(chan OrchestratorEvent, 100)
 	resultType, sessionID, collectErr := collectClaudeOutput(
-		context.Background(), cmd, stdout, "", 30000, eventCh, "issue-runner-1",
+		context.Background(), cmd, stdout, "", 30000, eventCh, "issue-runner-1", nil,
 	)
 
 	if collectErr != nil {
@@ -626,7 +626,7 @@ sleep 60
 
 	start := time.Now()
 	_, _, collectErr := collectClaudeOutput(
-		ctx, cmd, stdout, "", 1000, eventCh, "timeout-issue", // 1 second timeout
+		ctx, cmd, stdout, "", 1000, eventCh, "timeout-issue", nil, // 1 second timeout
 	)
 	elapsed := time.Since(start)
 

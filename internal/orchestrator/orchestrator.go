@@ -4,10 +4,12 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"path/filepath"
 	"sync"
 	"time"
 
 	"github.com/symphony-go/symphony/internal/agent"
+	"github.com/symphony-go/symphony/internal/cmux"
 	"github.com/symphony-go/symphony/internal/config"
 	"github.com/symphony-go/symphony/internal/tracker"
 	"github.com/symphony-go/symphony/internal/workflow"
@@ -23,6 +25,8 @@ type Orchestrator struct {
 	tracker      tracker.TrackerClient
 	launcher     agent.AgentLauncher
 	workspaceMgr *workspace.Manager
+
+	cmuxMgr *cmux.Manager
 
 	events    chan agent.OrchestratorEvent
 	reloadCh  chan ReloadPayload
@@ -42,6 +46,7 @@ func New(
 	trackerClient tracker.TrackerClient,
 	launcher agent.AgentLauncher,
 	workspaceMgr *workspace.Manager,
+	cmuxMgr *cmux.Manager,
 ) *Orchestrator {
 	state := NewState(cfg.Polling.IntervalMs, cfg.Agent.MaxConcurrentAgents)
 	state.ProjectSlug = cfg.Tracker.ProjectSlug
@@ -63,6 +68,7 @@ func New(
 		tracker:      trackerClient,
 		launcher:     launcher,
 		workspaceMgr: workspaceMgr,
+		cmuxMgr:      cmuxMgr,
 		events:       make(chan agent.OrchestratorEvent, 100),
 		reloadCh:     make(chan ReloadPayload, 1),
 		refreshCh:    make(chan struct{}, 1),
@@ -219,6 +225,12 @@ func (o *Orchestrator) dispatchIssue(ctx context.Context, issue *tracker.Issue, 
 	claudeCfg := cfg.Claude
 	agentCfg := cfg.Agent
 
+	// Create cmux surface for visibility
+	wsPath := filepath.Join(cfg.Workspace.Root, issue.Identifier)
+	if err := o.cmuxMgr.CreateSurface(issue.ID, issue.Identifier, wsPath); err != nil {
+		slog.Warn("cmux surface creation failed", "issue_identifier", issue.Identifier, "error", err)
+	}
+
 	slog.Info("dispatching issue",
 		"issue_id", issue.ID,
 		"issue_identifier", issue.Identifier,
@@ -235,8 +247,9 @@ func (o *Orchestrator) dispatchIssue(ctx context.Context, issue *tracker.Issue, 
 			AgentCfg:      &agentCfg,
 			ActiveStates:  cfg.Tracker.ActiveStates,
 			WorkspaceMgr:  o.workspaceMgr,
-			WorkspaceRoot: cfg.Workspace.Root,
-			ExtraEnv:      []string{},
+			WorkspaceRoot:  cfg.Workspace.Root,
+			ExtraEnv:       []string{},
+			EventLogWriter: o.cmuxMgr.LogWriter(issue.ID),
 			CheckIssueState: func(ctx context.Context, issueID string) (string, error) {
 				issues, err := o.tracker.FetchIssueStatesByIDs([]string{issueID})
 				if err != nil {
@@ -276,6 +289,8 @@ func (o *Orchestrator) handleEvent(ev agent.OrchestratorEvent) {
 				"issue_id", ev.IssueID,
 				"issue_identifier", entry.Identifier,
 			)
+			o.cmuxMgr.WriteAnnotation(ev.IssueID, "Worker completed normally")
+			o.cmuxMgr.CloseSurface(ev.IssueID)
 			removeRunning(o.state, ev.IssueID)
 			o.state.Completed[ev.IssueID] = struct{}{}
 
@@ -305,6 +320,8 @@ func (o *Orchestrator) handleEvent(ev agent.OrchestratorEvent) {
 				"issue_identifier", entry.Identifier,
 				"error", errMsg,
 			)
+			o.cmuxMgr.WriteAnnotation(ev.IssueID, fmt.Sprintf("Worker failed: %s", errMsg))
+			o.cmuxMgr.CloseSurface(ev.IssueID)
 
 			attempt := entry.RetryAttempt + 1
 			identifier := entry.Identifier
@@ -467,4 +484,6 @@ func (o *Orchestrator) shutdown() {
 		}
 		delete(o.state.RetryAttempts, id)
 	}
+
+	o.cmuxMgr.Shutdown()
 }
